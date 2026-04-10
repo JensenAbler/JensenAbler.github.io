@@ -1,0 +1,1340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Still Water</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      overflow: hidden;
+      touch-action: none;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+    .controls {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      background: rgba(0,0,0,0.6);
+      padding: 16px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .control-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .control-label {
+      font: 10px/1 'SF Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: rgba(255,255,255,0.5);
+    }
+    .mode-switch {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mode-label {
+      font: 10px/1 'SF Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: rgba(255,255,255,0.25);
+      transition: color 0.3s;
+      cursor: pointer;
+      user-select: none;
+    }
+    .mode-label.active-follow {
+      color: rgba(180, 220, 255, 0.9);
+    }
+    .mode-label.active-push {
+      color: rgba(255, 180, 100, 0.9);
+    }
+    .toggle {
+      position: relative;
+      width: 40px;
+      height: 20px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      background: rgba(255,255,255,0.6);
+      border-radius: 50%;
+      transition: transform 0.3s, background 0.3s;
+    }
+    .mode-toggle.follow {
+      background: rgba(100, 180, 255, 0.4);
+    }
+    .mode-toggle.follow::after {
+      transform: translateX(0px);
+      background: rgba(180, 220, 255, 0.9);
+    }
+    .mode-toggle.push {
+      background: rgba(255, 150, 60, 0.4);
+    }
+    .mode-toggle.push::after {
+      transform: translateX(20px);
+      background: rgba(255, 180, 100, 0.9);
+    }
+    .drift-toggle.active {
+      background: rgba(100, 180, 255, 0.4);
+    }
+    .drift-toggle.active::after {
+      transform: translateX(20px);
+      background: rgba(180, 220, 255, 0.9);
+    }
+    .divider {
+      height: 1px;
+      background: rgba(255,255,255,0.08);
+    }
+    .drift-section {
+      overflow: hidden;
+      max-height: 0;
+      opacity: 0;
+      transition: max-height 0.3s ease, opacity 0.3s ease;
+    }
+    .drift-section.visible {
+      max-height: 60px;
+      opacity: 1;
+    }
+    .ui {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      font: 10px/1.5 monospace;
+      color: rgba(255,255,255,0.25);
+      pointer-events: none;
+      max-width: 320px;
+    }
+    .hint {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font: 14px/1.5 'SF Mono', monospace;
+      color: rgba(255,255,255,0.3);
+      pointer-events: none;
+      text-align: center;
+      transition: opacity 0.5s;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div class="controls">
+    <div class="mode-switch">
+      <span class="mode-label active-follow" id="mode-follow-label">Follow</span>
+      <div class="toggle mode-toggle follow" id="mode-toggle"></div>
+      <span class="mode-label" id="mode-push-label">Push</span>
+    </div>
+    <div class="drift-section visible" id="drift-section">
+      <div class="divider" style="margin-bottom: 14px;"></div>
+      <div class="control-row">
+        <span class="control-label">Drift on release</span>
+        <div class="toggle drift-toggle active" id="drift-toggle"></div>
+      </div>
+    </div>
+  </div>
+  <div class="ui" id="ui"></div>
+  <div class="hint" id="hint">draw a shape</div>
+
+  <script>
+    const canvas = document.getElementById('c');
+    const gl = canvas.getContext('webgl', {
+      antialias: false,
+      powerPreference: 'high-performance'
+    });
+    const hint = document.getElementById('hint');
+
+    // ============================================
+    // UI CONTROLS
+    // ============================================
+
+    let realtimeEnabled = true;
+    let stickyEnabled = false;
+    let stickyIntensity = 0.5;
+
+    // Warmth: 0 = cool/Follow, 1 = warm/Push
+    let smoothWarmth = 0.0;
+    let targetWarmth = 0.0;
+
+    const modeToggle = document.getElementById('mode-toggle');
+    const modeFollowLabel = document.getElementById('mode-follow-label');
+    const modePushLabel = document.getElementById('mode-push-label');
+    const driftSection = document.getElementById('drift-section');
+
+    function setMode(followMode) {
+      realtimeEnabled = followMode;
+      stickyEnabled = !followMode;
+      targetWarmth = followMode ? 0.0 : 1.0;
+
+      if (followMode) {
+        modeToggle.classList.add('follow');
+        modeToggle.classList.remove('push');
+      } else {
+        modeToggle.classList.add('push');
+        modeToggle.classList.remove('follow');
+      }
+
+      modeFollowLabel.classList.toggle('active-follow', followMode);
+      modeFollowLabel.classList.remove('active-push');
+      modePushLabel.classList.toggle('active-push', !followMode);
+      modePushLabel.classList.remove('active-follow');
+
+      driftSection.classList.toggle('visible', followMode);
+
+      // Nudge hue targets toward the new palette
+      nudgeHueTowardPalette(followMode);
+    }
+
+    function nudgeHueTowardPalette(followMode) {
+      if (followMode) {
+        // Cool palette: hue 0.55–0.75 (blues, cyans, purples)
+        targets.hueBase = 0.55 + Math.random() * 0.2;
+      } else {
+        // Warm palette: hue 0.95–1.10 (wraps: reds, oranges, yellows)
+        targets.hueBase = 0.95 + Math.random() * 0.15;
+      }
+      targets.hueRange = 0.05 + Math.random() * 0.15;
+    }
+
+    modeToggle.addEventListener('click', () => {
+      setMode(!realtimeEnabled);
+    });
+    modeFollowLabel.addEventListener('click', () => setMode(true));
+    modePushLabel.addEventListener('click', () => setMode(false));
+
+    // Spiral — on by default, no UI
+    let spiralEnabled = true;
+    let spiralIntensity = 0.5;
+
+    // Drift on release
+    let driftEnabled = true;
+    let driftIntensity = 0.5;
+
+    const driftToggle = document.getElementById('drift-toggle');
+
+    driftToggle.addEventListener('click', () => {
+      driftEnabled = !driftEnabled;
+      driftToggle.classList.toggle('active', driftEnabled);
+    });
+
+    // Surge — on by default, no UI
+    let surgeEnabled = true;
+    let surgeIntensity = 0.5;
+
+    // Warp — always on, no UI
+    let warpEnabled = true;
+    let warpIntensity = 0.5;
+
+    // ============================================
+    // FOURIER PATH SYSTEM
+    // ============================================
+
+    const NUM_HARMONICS = 8;
+    const PATH_SAMPLE_INTERVAL = 32;
+    const MIN_PATH_POINTS = 1;
+    const MAX_PATH_POINTS = 64;
+
+    let currentCoeffs = new Float32Array(NUM_HARMONICS * 4);
+    let targetCoeffs = new Float32Array(NUM_HARMONICS * 4);
+    let pathScale = 0.3;
+    let targetPathScale = 0.3;
+
+    const COEFF_SMOOTH_RATE = 0.02;
+
+    let pathPoints = [];
+    let lastPathSampleTime = 0;
+    let hasValidPath = false;
+
+    let liveCoeffs = new Float32Array(NUM_HARMONICS * 4);
+    let liveCoeffsTarget = new Float32Array(NUM_HARMONICS * 4);
+    let livePathScale = 0.3;
+    let livePathScaleTarget = 0.3;
+    let liveCenterX = 0;
+    let liveCenterY = 0;
+    let liveCenterTargetX = 0;
+    let liveCenterTargetY = 0;
+    let liveInfluence = 0;
+
+    let coeffVelocity = new Float32Array(NUM_HARMONICS * 4);
+    let lastCoeffs = new Float32Array(NUM_HARMONICS * 4);
+    const COEFF_VEL_SMOOTHING = 0.3;
+    const COEFF_VEL_DRAG = 0.95;
+
+    let centerVelX = 0;
+    let centerVelY = 0;
+    let lastLiveCenterX = 0;
+    let lastLiveCenterY = 0;
+    const CENTER_VEL_SMOOTHING = 0.3;
+    const CENTER_VEL_DRAG = 0.98;
+
+    let shapeActivity = 0;
+    const SHAPE_ACTIVITY_DECAY = 0.92;
+
+    function analyzePathSpacing(points) {
+      if (points.length < 3) return { maxSpacing: 0, terminalSpacing: 0, ratio: 0, inertiaDirection: 1 };
+
+      const spacings = [];
+      for (let i = 1; i < points.length; i++) {
+        const dx = points[i].x - points[i-1].x;
+        const dy = points[i].y - points[i-1].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        spacings.push({ dist, dx, dy });
+      }
+
+      let maxSpacing = 0;
+      for (const s of spacings) {
+        if (s.dist > maxSpacing) maxSpacing = s.dist;
+      }
+
+      const terminalCount = Math.min(5, Math.floor(spacings.length / 3));
+      let terminalSpacing = 0;
+      for (let i = spacings.length - terminalCount; i < spacings.length; i++) {
+        terminalSpacing += spacings[i].dist;
+      }
+      terminalSpacing /= terminalCount;
+
+      const ratio = maxSpacing > 0.0001 ? terminalSpacing / maxSpacing : 0;
+
+      let weightedAngular = 0;
+      let totalWeight = 0;
+
+      let cx = 0, cy = 0;
+      for (const p of points) { cx += p.x; cy += p.y; }
+      cx /= points.length;
+      cy /= points.length;
+
+      for (let i = 0; i < spacings.length; i++) {
+        const s = spacings[i];
+        const midX = (points[i].x + points[i+1].x) / 2;
+        const midY = (points[i].y + points[i+1].y) / 2;
+        const toCenterX = midX - cx;
+        const toCenterY = midY - cy;
+        const angular = toCenterX * s.dy - toCenterY * s.dx;
+        const weight = s.dist * s.dist;
+        weightedAngular += angular * weight;
+        totalWeight += weight;
+      }
+
+      const avgAngular = totalWeight > 0.00001 ? weightedAngular / totalWeight : 0;
+      const inertiaDirection = Math.abs(avgAngular) > 0.00001 ? Math.sign(avgAngular) : 1;
+
+      return { maxSpacing, terminalSpacing, ratio, inertiaDirection };
+    }
+
+    let touchStartTime = 0;
+    let isHolding = false;
+    const HOLD_THRESHOLD_MS = 200;
+
+    let pathCenterX = 0;
+    let pathCenterY = 0;
+    let targetCenterX = 0;
+    let targetCenterY = 0;
+
+    function initCirclePath() {
+      for (let i = 0; i < NUM_HARMONICS * 4; i++) {
+        currentCoeffs[i] = 0;
+        targetCoeffs[i] = 0;
+      }
+      currentCoeffs[4] = 0.25;
+      currentCoeffs[7] = 0.25;
+      targetCoeffs[4] = 0.25;
+      targetCoeffs[7] = 0.25;
+      hasValidPath = true;
+    }
+
+    initCirclePath();
+
+    function computeFourierCoeffs(points) {
+      let n = points.length;
+      if (n < MIN_PATH_POINTS) return null;
+
+      if (n === 1) {
+        const coeffs = new Float32Array(NUM_HARMONICS * 4);
+        coeffs[4] = 0.25;
+        coeffs[7] = 0.25;
+        return { coeffs, scale: 0.05, centerX: points[0].x, centerY: points[0].y };
+      }
+
+      let pts = points;
+      if (n > 32) {
+        const step = n / 32;
+        pts = [];
+        for (let i = 0; i < 32; i++) {
+          pts.push(points[Math.floor(i * step)]);
+        }
+        n = 32;
+      }
+
+      const coeffs = new Float32Array(NUM_HARMONICS * 4);
+
+      let cx = 0, cy = 0;
+      for (const p of pts) { cx += p.x; cy += p.y; }
+      cx /= n;
+      cy /= n;
+
+      let maxDist = 0;
+      for (const p of pts) {
+        const d = Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2);
+        maxDist = Math.max(maxDist, d);
+      }
+      if (maxDist < 0.01) maxDist = 0.1;
+
+      const normalized = pts.map(p => ({
+        x: (p.x - cx) / maxDist,
+        y: (p.y - cy) / maxDist
+      }));
+
+      for (let k = 0; k < NUM_HARMONICS; k++) {
+        let cos_x = 0, sin_x = 0, cos_y = 0, sin_y = 0;
+        for (let i = 0; i < n; i++) {
+          const t = (2 * Math.PI * k * i) / n;
+          const cos_t = Math.cos(t);
+          const sin_t = Math.sin(t);
+          cos_x += normalized[i].x * cos_t;
+          sin_x += normalized[i].x * sin_t;
+          cos_y += normalized[i].y * cos_t;
+          sin_y += normalized[i].y * sin_t;
+        }
+        const scale = k === 0 ? 1 / n : 2 / n;
+        coeffs[k * 4 + 0] = cos_x * scale;
+        coeffs[k * 4 + 1] = sin_x * scale;
+        coeffs[k * 4 + 2] = cos_y * scale;
+        coeffs[k * 4 + 3] = sin_y * scale;
+      }
+
+      return { coeffs, scale: maxDist, centerX: cx, centerY: cy };
+    }
+
+    // ============================================
+    // EVOLUTION PARAMETERS
+    // ============================================
+
+    function randInRange(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    // Base ranges (used for non-hue params)
+    const paramRanges = {
+      glowBase: [0.01, 0.025],
+      glowMotion: [0.05, 0.12],
+      hueBase: [0.55, 0.75],
+      hueRange: [0.0, 0.2],
+      satBase: [0.4, 0.8],
+      orbitSpeed: [0.15, 0.5],
+      radiusOffset: [0.0, 0.08],
+      particleCount: [15, 25],
+      touchHueShift: [0.0, 0.3]
+    };
+
+    let params = {};
+    let targets = {};
+
+    for (const [key, [min, max]] of Object.entries(paramRanges)) {
+      const val = (min + max) / 2;
+      params[key] = val;
+      targets[key] = val;
+    }
+    params.particleCount = 20;
+    targets.particleCount = 20;
+
+    // Start with cool palette
+    params.hueBase = 0.6;
+    targets.hueBase = 0.6;
+
+    function evolveParams() {
+      for (const [key, [min, max]] of Object.entries(paramRanges)) {
+        if (key === 'particleCount' || key === 'orbitSpeed') continue;
+
+        // Constrain hue evolution to current palette
+        if (key === 'hueBase') {
+          let hMin, hMax;
+          if (targetWarmth < 0.5) {
+            // Cool: blues, cyans, purples
+            hMin = 0.55; hMax = 0.75;
+          } else {
+            // Warm: reds, oranges, yellows (wrapping around 1.0)
+            hMin = 0.95; hMax = 1.10;
+          }
+          const drift = randInRange(hMin, hMax);
+          targets[key] = targets[key] * 0.6 + drift * 0.4;
+          continue;
+        }
+        if (key === 'hueRange') {
+          // Keep range tighter so colors stay within palette
+          const drift = randInRange(0.03, 0.15);
+          targets[key] = targets[key] * 0.6 + drift * 0.4;
+          continue;
+        }
+
+        const drift = randInRange(min, max);
+        targets[key] = targets[key] * 0.6 + drift * 0.4;
+      }
+    }
+
+    // ============================================
+    // INTERACTION STATE
+    // ============================================
+
+    let momentum = 0.0;
+    let peakMomentum = 0.0;
+    let phase = 0.0;
+    let velocity = 0.0;
+    const PHASE_DRAG = 0.997;
+    const PEAK_DECAY = 0.95;
+
+    let spiralActive = false;
+    let spiralStrength = 0;
+    const SPIRAL_ON_THRESHOLD = 0.001;
+    const SPIRAL_OFF_THRESHOLD = 0.003;
+    const SPIRAL_EASE_SPEED = 0.05;
+
+    let mouseDown = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+    let mouseX = 0.5;
+    let mouseY = 0.5;
+    let lastClientX = 0;
+    let lastClientY = 0;
+
+    let ripples = [];
+    const MAX_RIPPLES = 5;
+    const RIPPLE_LIFETIME = 5000;
+
+    const PUSH_STRENGTH = 1.5;
+
+    let smoothActive = 0.0;
+    let smoothWarp = 0.0;
+    let lastWarpX = 0;
+    let lastWarpY = 0;
+    let drawCount = 0;
+    let touchTotalMovement = 0;
+
+    function setMouse(x, y) {
+      lastMouseX = mouseX;
+      lastMouseY = mouseY;
+      mouseX = x;
+      mouseY = 1.0 - y;
+    }
+
+    function getNormalizedCoords(clientX, clientY) {
+      const aspect = canvas.width / canvas.height;
+      const x = (clientX / window.innerWidth - 0.5) * aspect;
+      const y = -(clientY / window.innerHeight - 0.5);
+      return { x, y };
+    }
+
+    function startTouch(clientX, clientY) {
+      mouseDown = true;
+      velocity = 0;
+      touchTotalMovement = 0;
+      setMouse(clientX / window.innerWidth, clientY / window.innerHeight);
+      lastClientX = clientX;
+      lastClientY = clientY;
+
+      touchStartTime = performance.now();
+
+      if (realtimeEnabled) {
+        isHolding = true;
+
+        liveCoeffs.set(currentCoeffs);
+        liveCoeffsTarget.set(currentCoeffs);
+        livePathScale = pathScale;
+        livePathScaleTarget = pathScale;
+        liveCenterX = pathCenterX;
+        liveCenterY = pathCenterY;
+
+        lastCoeffs.set(currentCoeffs);
+        lastLiveCenterX = pathCenterX;
+        lastLiveCenterY = pathCenterY;
+
+        const coords = getNormalizedCoords(clientX, clientY);
+        liveCenterX = coords.x;
+        liveCenterY = coords.y;
+        liveCenterTargetX = coords.x;
+        liveCenterTargetY = coords.y;
+
+        livePathScale = 0.02;
+        livePathScaleTarget = 0.02;
+      } else {
+        isHolding = false;
+      }
+
+      liveInfluence = 0;
+
+      pathPoints = [];
+      lastPathSampleTime = performance.now();
+      const coords = getNormalizedCoords(clientX, clientY);
+      pathPoints.push(coords);
+
+      hint.style.opacity = '0';
+    }
+
+    function moveTouch(clientX, clientY) {
+      const oldX = mouseX;
+      const oldY = mouseY;
+      setMouse(clientX / window.innerWidth, clientY / window.innerHeight);
+      lastClientX = clientX;
+      lastClientY = clientY;
+
+      if (mouseDown) {
+        let dx = mouseX - oldX;
+        let dy = mouseY - oldY;
+
+        const moveMagnitude = Math.sqrt(dx * dx + dy * dy);
+        touchTotalMovement += moveMagnitude;
+
+        const TAP_THRESHOLD = 0.003;
+        const MIN_TOTAL_MOVEMENT = 0.015;
+
+        let contribution = 0;
+        if (moveMagnitude > TAP_THRESHOLD && touchTotalMovement > MIN_TOTAL_MOVEMENT) {
+          let direction;
+          if (Math.abs(dx) > moveMagnitude * 0.1) {
+            direction = Math.sign(dx);
+          } else {
+            direction = Math.sign(momentum) || 1;
+          }
+          contribution = direction * moveMagnitude * 8.0;
+        }
+
+        const VELOCITY_SMOOTHING = 0.25;
+        velocity = velocity * (1 - VELOCITY_SMOOTHING) + contribution * VELOCITY_SMOOTHING;
+
+        const targetMomentum = velocity * PUSH_STRENGTH;
+        const MOMENTUM_SMOOTHING = 0.15;
+        momentum = momentum * (1 - MOMENTUM_SMOOTHING) + targetMomentum * MOMENTUM_SMOOTHING;
+
+        if (Math.abs(momentum) > Math.abs(peakMomentum) || (momentum * peakMomentum < 0)) {
+          peakMomentum = momentum;
+        } else {
+          peakMomentum = peakMomentum * PEAK_DECAY + momentum * (1 - PEAK_DECAY);
+        }
+
+        const now = performance.now();
+        if (now - lastPathSampleTime > PATH_SAMPLE_INTERVAL) {
+          const coords = getNormalizedCoords(clientX, clientY);
+          pathPoints.push(coords);
+          lastPathSampleTime = now;
+
+          if (isHolding) {
+            while (pathPoints.length > MAX_PATH_POINTS) {
+              pathPoints.shift();
+            }
+          } else {
+            if (pathPoints.length > MAX_PATH_POINTS) {
+              pathPoints.pop();
+            }
+          }
+
+          if (isHolding && pathPoints.length >= MIN_PATH_POINTS) {
+            const result = computeFourierCoeffs(pathPoints);
+            if (result) {
+              let frameActivity = 0;
+              for (let i = 0; i < result.coeffs.length; i++) {
+                const delta = result.coeffs[i] - lastCoeffs[i];
+                coeffVelocity[i] = coeffVelocity[i] * (1 - COEFF_VEL_SMOOTHING) + delta * COEFF_VEL_SMOOTHING;
+                lastCoeffs[i] = result.coeffs[i];
+                frameActivity += Math.abs(delta);
+              }
+
+              const cdx = result.centerX - lastLiveCenterX;
+              const cdy = result.centerY - lastLiveCenterY;
+              frameActivity += Math.sqrt(cdx * cdx + cdy * cdy) * 2;
+
+              shapeActivity = shapeActivity * SHAPE_ACTIVITY_DECAY + frameActivity;
+
+              for (let i = 0; i < result.coeffs.length; i++) {
+                liveCoeffsTarget[i] = result.coeffs[i];
+              }
+              livePathScaleTarget = result.scale;
+
+              const dx = result.centerX - lastLiveCenterX;
+              const dy = result.centerY - lastLiveCenterY;
+              centerVelX = centerVelX * (1 - CENTER_VEL_SMOOTHING) + dx * CENTER_VEL_SMOOTHING;
+              centerVelY = centerVelY * (1 - CENTER_VEL_SMOOTHING) + dy * CENTER_VEL_SMOOTHING;
+
+              lastLiveCenterX = result.centerX;
+              lastLiveCenterY = result.centerY;
+
+              liveCenterTargetX = result.centerX;
+              liveCenterTargetY = result.centerY;
+            }
+          }
+        }
+      }
+    }
+
+    function releaseTouch() {
+      if (mouseDown) {
+        const aspect = canvas.width / canvas.height;
+        const sx = (mouseX - 0.5) * aspect;
+        const sy = mouseY - 0.5;
+
+        ripples.push({
+          x: sx,
+          y: sy,
+          startTime: performance.now()
+        });
+
+        if (ripples.length > MAX_RIPPLES) {
+          ripples.shift();
+        }
+
+        const MIN_SWIPE_MOVEMENT = 0.02;
+        const wasTap = touchTotalMovement < MIN_SWIPE_MOVEMENT;
+
+        if (wasTap) {
+          velocity = 0;
+        }
+
+        if (isHolding && pathPoints.length >= MIN_PATH_POINTS) {
+          currentCoeffs.set(liveCoeffs);
+          targetCoeffs.set(liveCoeffs);
+          pathScale = livePathScale;
+          targetPathScale = livePathScale;
+          pathCenterX = liveCenterX;
+          targetCenterX = liveCenterX;
+          pathCenterY = liveCenterY;
+          targetCenterY = liveCenterY;
+
+          if (surgeEnabled && !wasTap && pathPoints.length >= 3) {
+            const analysis = analyzePathSpacing(pathPoints);
+
+            const surgeScale = 0.5 + surgeIntensity * 2.0;
+            const energy = analysis.maxSpacing * surgeScale * 2.0;
+
+            if (energy > 0.001) {
+              let direction = analysis.inertiaDirection;
+              const magnitudeModulator = 0.3 + analysis.ratio * 0.7;
+              const boost = energy * magnitudeModulator;
+              momentum += direction * boost;
+            }
+          }
+
+          shapeActivity = 0;
+        }
+
+        peakMomentum = 0;
+        evolveParams();
+      }
+      mouseDown = false;
+      velocity = 0;
+      pathPoints = [];
+      isHolding = false;
+    }
+
+    canvas.addEventListener('mousemove', e => moveTouch(e.clientX, e.clientY));
+    canvas.addEventListener('mousedown', e => startTouch(e.clientX, e.clientY));
+    canvas.addEventListener('mouseup', releaseTouch);
+    canvas.addEventListener('mouseleave', releaseTouch);
+
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      startTouch(touch.clientX, touch.clientY);
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      moveTouch(touch.clientX, touch.clientY);
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', e => {
+      e.preventDefault();
+      releaseTouch();
+    }, { passive: false });
+
+    // ============================================
+    // SHADER
+    // ============================================
+
+    const vert = `attribute vec2 a;void main(){gl_Position=vec4(a,0,1);}`;
+
+    const frag = `
+    precision highp float;
+
+    uniform vec2 r;
+    uniform float phase;
+    uniform float momentum;
+    uniform vec2 mouse;
+    uniform float active;
+
+    uniform vec4 coeffs[${NUM_HARMONICS}];
+    uniform vec4 liveCoeffs[${NUM_HARMONICS}];
+    uniform float pathScale;
+    uniform float livePathScale;
+    uniform vec2 pathCenter;
+    uniform vec2 liveCenter;
+    uniform float liveInfluence;
+
+    uniform float warpStrength;
+    uniform vec2 warpCenter;
+
+    uniform float rippleWarpEnabled;
+    uniform float rippleWarpIntensity;
+
+    uniform float u_glowBase;
+    uniform float u_glowMotion;
+    uniform float u_hueBase;
+    uniform float u_hueRange;
+    uniform float u_satBase;
+    uniform float u_orbitSpeed;
+    uniform float u_radiusOffset;
+    uniform float u_particleCount;
+    uniform float u_touchHueShift;
+    uniform float u_warmth;
+
+    uniform vec4 ripple0;
+    uniform vec4 ripple1;
+    uniform vec4 ripple2;
+    uniform vec4 ripple3;
+    uniform vec4 ripple4;
+
+    #define PI 3.14159265
+    #define TAU 6.28318530
+    #define NUM_HARMONICS ${NUM_HARMONICS}
+
+    float hash(float n) {
+      return fract(sin(n * 127.1) * 43758.5453);
+    }
+
+    vec3 hsv(float h, float s, float v) {
+      vec3 c = vec3(h, s, v);
+      vec3 rgb = clamp(abs(mod(c.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+      return c.z * mix(vec3(1.0), rgb, c.y);
+    }
+
+    vec2 fourierPath(float t, vec4 c[NUM_HARMONICS], float scale) {
+      vec2 pos = vec2(0.0);
+      for (int k = 0; k < NUM_HARMONICS; k++) {
+        float angle = float(k) * t;
+        float cos_t = cos(angle);
+        float sin_t = sin(angle);
+        pos.x += c[k].x * cos_t + c[k].y * sin_t;
+        pos.y += c[k].z * cos_t + c[k].w * sin_t;
+      }
+      return pos * scale;
+    }
+
+    vec2 fourierTangent(float t, vec4 c[NUM_HARMONICS]) {
+      vec2 tangent = vec2(0.0);
+      for (int k = 0; k < NUM_HARMONICS; k++) {
+        float kf = float(k);
+        float angle = kf * t;
+        float cos_t = cos(angle);
+        float sin_t = sin(angle);
+        tangent.x += kf * (-c[k].x * sin_t + c[k].y * cos_t);
+        tangent.y += kf * (-c[k].z * sin_t + c[k].w * cos_t);
+      }
+      float len = length(tangent);
+      return len > 0.001 ? tangent / len : vec2(1.0, 0.0);
+    }
+
+    float rippleEffect(vec2 pos, vec4 rip) {
+      if (rip.z < 0.0) return 0.0;
+      float age = rip.z;
+      vec2 center = rip.xy;
+      float radius = age * 0.6;
+      float thickness = 0.12 + age * 0.08;
+      float d = length(pos - center);
+      float ring = exp(-pow(d - radius, 2.0) / (thickness * thickness));
+      float fade = exp(-age * 0.7);
+      return ring * fade;
+    }
+
+    vec2 rippleWarpDisplacement(vec2 pos, vec4 rip, float intensity) {
+      if (rip.z < 0.0) return vec2(0.0);
+      float age = rip.z;
+      vec2 center = rip.xy;
+      float radius = age * 0.6;
+      float thickness = 0.08 + age * 0.04;
+      vec2 delta = pos - center;
+      float d = length(delta);
+      float ringProximity = exp(-pow(d - radius, 2.0) / (thickness * thickness));
+      float fade = exp(-age * 0.6);
+      vec2 pushDir = d > 0.001 ? delta / d : vec2(0.0, 1.0);
+      float displacement = ringProximity * fade * intensity * 0.12;
+      return pushDir * displacement;
+    }
+
+    float getDistortionField(vec2 pos, vec2 touchPos, float touchActive) {
+      float dist = length(pos - touchPos);
+      float touchField = exp(-dist * 4.0) * touchActive;
+      float r0 = rippleEffect(pos, ripple0);
+      float r1 = rippleEffect(pos, ripple1);
+      float r2 = rippleEffect(pos, ripple2);
+      float r3 = rippleEffect(pos, ripple3);
+      float r4 = rippleEffect(pos, ripple4);
+      float rippleMax = max(max(max(max(r0, r1), r2), r3), r4);
+      return max(touchField, rippleMax);
+    }
+
+    vec2 applyWarp(vec2 pos, vec2 warpPos, float strength) {
+      vec2 delta = pos - warpPos;
+      float dist = length(delta);
+      float falloff = exp(-dist * 3.0);
+      vec2 pushDir = dist > 0.001 ? normalize(delta) : vec2(0.0, 1.0);
+      float displacement = strength * falloff * 0.15;
+      return pos + pushDir * displacement;
+    }
+
+    vec2 applyRippleWarp(vec2 pos, float intensity) {
+      vec2 totalDisp = vec2(0.0);
+      totalDisp += rippleWarpDisplacement(pos, ripple0, intensity);
+      totalDisp += rippleWarpDisplacement(pos, ripple1, intensity);
+      totalDisp += rippleWarpDisplacement(pos, ripple2, intensity);
+      totalDisp += rippleWarpDisplacement(pos, ripple3, intensity);
+      totalDisp += rippleWarpDisplacement(pos, ripple4, intensity);
+      return pos + totalDisp;
+    }
+
+    void main() {
+      vec2 uv = (gl_FragCoord.xy - r * 0.5) / r.y;
+      vec2 m = (mouse - 0.5) * vec2(r.x / r.y, 1.0);
+
+      // Accent colors: cool blue → warm orange
+      vec3 coolAccent = vec3(0.3, 0.5, 0.9);
+      vec3 warmAccent = vec3(0.9, 0.45, 0.15);
+      vec3 accent = mix(coolAccent, warmAccent, u_warmth);
+
+      vec3 col = vec3(0.0);
+
+      float N = floor(u_particleCount);
+
+      for (float i = 0.0; i < 25.0; i++) {
+        if (i >= N) break;
+
+        float s1 = hash(i);
+        float s2 = hash(i + 57.0);
+        float s3 = hash(i + 123.0);
+
+        float basePhase = (i / N) * TAU;
+        float speed = u_orbitSpeed * (0.7 + s2 * 0.6);
+        float t = basePhase + phase * speed;
+
+        vec2 storedPos = fourierPath(t, coeffs, pathScale) + pathCenter;
+        vec2 storedTangent = fourierTangent(t, coeffs);
+
+        vec2 livePos = fourierPath(t, liveCoeffs, livePathScale) + liveCenter;
+        vec2 liveTangent = fourierTangent(t, liveCoeffs);
+
+        vec2 pathPos = mix(storedPos, livePos, liveInfluence);
+        vec2 tangent = mix(storedTangent, liveTangent, liveInfluence);
+        vec2 normal = vec2(-tangent.y, tangent.x);
+
+        float radiusOff = (s1 - 0.5) * 2.0 * u_radiusOffset;
+        vec2 p = pathPos + normal * radiusOff;
+
+        p = applyWarp(p, warpCenter, warpStrength);
+
+        if (rippleWarpEnabled > 0.5) {
+          p = applyRippleWarp(p, rippleWarpIntensity);
+        }
+
+        float distToTouch = length(p - m);
+        float proximity = exp(-distToTouch * 4.0) * active;
+
+        float field = getDistortionField(p, m, active);
+
+        float d = length(uv - p);
+
+        float baseBrightness = u_glowBase;
+        float motionBrightness = u_glowMotion * field;
+        float glow = (baseBrightness + motionBrightness) / (d + 0.008);
+
+        float baseHue = u_hueBase + s3 * u_hueRange;
+        float hue = mix(baseHue, baseHue + u_touchHueShift, proximity);
+        hue = mod(hue, 1.0);
+        float sat = u_satBase + proximity * 0.3;
+
+        col += hsv(hue, sat, 1.0) * glow;
+      }
+
+      if (active > 0.1) {
+        float dm = length(uv - m);
+        float touch = exp(-dm * 10.0) * 0.1 * active;
+        col += accent * touch;
+      }
+
+      vec4 rips[5];
+      rips[0] = ripple0; rips[1] = ripple1; rips[2] = ripple2;
+      rips[3] = ripple3; rips[4] = ripple4;
+
+      for (int i = 0; i < 5; i++) {
+        if (rips[i].z >= 0.0) {
+          float age = rips[i].z;
+          vec2 center = rips[i].xy;
+          float radius = age * 0.6;
+          float dd = length(uv - center);
+          float ring = exp(-pow(dd - radius, 2.0) / 0.008) * exp(-age * 0.5);
+          col += accent * ring * 0.3;
+        }
+      }
+
+      col = 1.0 - exp(-col * 0.5);
+      col = pow(col, vec3(2.0));
+
+      gl_FragColor = vec4(col, 1.0);
+    }
+    `;
+
+    function compile(src, type) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(s));
+      }
+      return s;
+    }
+
+    const prog = gl.createProgram();
+    gl.attachShader(prog, compile(vert, gl.VERTEX_SHADER));
+    gl.attachShader(prog, compile(frag, gl.FRAGMENT_SHADER));
+    gl.linkProgram(prog);
+
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      console.error(gl.getProgramInfoLog(prog));
+    }
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+
+    const aLoc = gl.getAttribLocation(prog, 'a');
+    const rLoc = gl.getUniformLocation(prog, 'r');
+    const phaseLoc = gl.getUniformLocation(prog, 'phase');
+    const momentumLoc = gl.getUniformLocation(prog, 'momentum');
+    const mouseLoc = gl.getUniformLocation(prog, 'mouse');
+    const activeLoc = gl.getUniformLocation(prog, 'active');
+
+    const coeffsLoc = gl.getUniformLocation(prog, 'coeffs');
+    const liveCoeffsLoc = gl.getUniformLocation(prog, 'liveCoeffs');
+    const pathScaleLoc = gl.getUniformLocation(prog, 'pathScale');
+    const livePathScaleLoc = gl.getUniformLocation(prog, 'livePathScale');
+    const pathCenterLoc = gl.getUniformLocation(prog, 'pathCenter');
+    const liveCenterLoc = gl.getUniformLocation(prog, 'liveCenter');
+    const liveInfluenceLoc = gl.getUniformLocation(prog, 'liveInfluence');
+
+    const warpStrengthLoc = gl.getUniformLocation(prog, 'warpStrength');
+    const warpCenterLoc = gl.getUniformLocation(prog, 'warpCenter');
+
+    const rippleWarpEnabledLoc = gl.getUniformLocation(prog, 'rippleWarpEnabled');
+    const rippleWarpIntensityLoc = gl.getUniformLocation(prog, 'rippleWarpIntensity');
+
+    const uLocs = {};
+    const uniformNames = [
+      'u_glowBase', 'u_glowMotion', 'u_hueBase', 'u_hueRange',
+      'u_satBase', 'u_orbitSpeed', 'u_radiusOffset', 'u_particleCount',
+      'u_touchHueShift', 'u_warmth'
+    ];
+
+    for (const name of uniformNames) {
+      uLocs[name] = gl.getUniformLocation(prog, name);
+    }
+
+    const rippleLocs = [
+      gl.getUniformLocation(prog, 'ripple0'),
+      gl.getUniformLocation(prog, 'ripple1'),
+      gl.getUniformLocation(prog, 'ripple2'),
+      gl.getUniformLocation(prog, 'ripple3'),
+      gl.getUniformLocation(prog, 'ripple4')
+    ];
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio, 1.5);
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    let lastTime = 0;
+
+    function render(time) {
+      const dt = Math.min((time - lastTime) / 1000, 0.1);
+      lastTime = time;
+
+      // Smooth warmth transition
+      smoothWarmth += (targetWarmth - smoothWarmth) * 0.04;
+
+      // Smooth coefficients
+      for (let i = 0; i < currentCoeffs.length; i++) {
+        currentCoeffs[i] += (targetCoeffs[i] - currentCoeffs[i]) * COEFF_SMOOTH_RATE;
+      }
+
+      pathScale += (targetPathScale - pathScale) * COEFF_SMOOTH_RATE;
+      pathCenterX += (targetCenterX - pathCenterX) * COEFF_SMOOTH_RATE;
+      pathCenterY += (targetCenterY - pathCenterY) * COEFF_SMOOTH_RATE;
+
+      // Smooth params
+      for (const key of Object.keys(params)) {
+        params[key] += (targets[key] - params[key]) * 0.05;
+      }
+
+      // Velocity decay when holding still
+      if (isHolding) {
+        velocity *= 0.9;
+
+        const LIVE_LERP_RATE = 0.12;
+        for (let i = 0; i < liveCoeffs.length; i++) {
+          liveCoeffs[i] += (liveCoeffsTarget[i] - liveCoeffs[i]) * LIVE_LERP_RATE;
+        }
+        livePathScale += (livePathScaleTarget - livePathScale) * LIVE_LERP_RATE;
+        liveCenterX += (liveCenterTargetX - liveCenterX) * LIVE_LERP_RATE;
+        liveCenterY += (liveCenterTargetY - liveCenterY) * LIVE_LERP_RATE;
+      }
+
+      // Spiral behavior (always enabled)
+      if (spiralEnabled) {
+        if (isHolding) {
+          if (!spiralActive && Math.abs(velocity) < SPIRAL_ON_THRESHOLD) {
+            spiralActive = true;
+          } else if (spiralActive && Math.abs(velocity) > SPIRAL_OFF_THRESHOLD) {
+            spiralActive = false;
+          }
+        } else {
+          spiralActive = false;
+        }
+      } else {
+        spiralActive = false;
+      }
+
+      const targetSpiralStrength = spiralActive ? 1 : 0;
+      spiralStrength += (targetSpiralStrength - spiralStrength) * SPIRAL_EASE_SPEED;
+
+      if (spiralActive && spiralEnabled) {
+        const coords = getNormalizedCoords(lastClientX, lastClientY);
+        const spiralSpeed = 0.001 + spiralIntensity * 0.005;
+        const time = performance.now() * spiralSpeed;
+        const maxSpiralRadius = Math.max(0.02, livePathScale * (0.2 + spiralIntensity * 0.6));
+        const spiralRadius = maxSpiralRadius * spiralStrength;
+        const spiralX = coords.x + Math.cos(time) * spiralRadius;
+        const spiralY = coords.y + Math.sin(time) * spiralRadius;
+
+        pathPoints.push({ x: spiralX, y: spiralY });
+
+        while (pathPoints.length > MAX_PATH_POINTS) {
+          pathPoints.shift();
+        }
+
+        if (pathPoints.length >= MIN_PATH_POINTS) {
+          const result = computeFourierCoeffs(pathPoints);
+          if (result) {
+            for (let i = 0; i < result.coeffs.length; i++) {
+              liveCoeffsTarget[i] = result.coeffs[i];
+            }
+            livePathScaleTarget = result.scale;
+            liveCenterTargetX = result.centerX;
+            liveCenterTargetY = result.centerY;
+          }
+        }
+      }
+
+      // Phase physics
+      phase += momentum;
+      if (!mouseDown) {
+        momentum *= PHASE_DRAG;
+        if (Math.abs(momentum) < 0.00001) momentum = 0;
+
+        if (driftEnabled) {
+          const driftScale = 0.2 + driftIntensity * 1.6;
+          const driftDrag = COEFF_VEL_DRAG + (1 - COEFF_VEL_DRAG) * (1 - driftIntensity) * 0.5;
+
+          for (let i = 0; i < liveCoeffs.length; i++) {
+            const velContrib = coeffVelocity[i] * driftScale;
+            liveCoeffs[i] += velContrib;
+            currentCoeffs[i] += velContrib;
+            targetCoeffs[i] += velContrib;
+            coeffVelocity[i] *= driftDrag;
+          }
+
+          const centerDriftScale = 0.2 + driftIntensity * 1.6;
+          const centerDriftDrag = CENTER_VEL_DRAG + (1 - CENTER_VEL_DRAG) * (1 - driftIntensity) * 0.5;
+
+          liveCenterX += centerVelX * centerDriftScale;
+          liveCenterY += centerVelY * centerDriftScale;
+          pathCenterX += centerVelX * centerDriftScale;
+          pathCenterY += centerVelY * centerDriftScale;
+          targetCenterX += centerVelX * centerDriftScale;
+          targetCenterY += centerVelY * centerDriftScale;
+
+          centerVelX *= centerDriftDrag;
+          centerVelY *= centerDriftDrag;
+        } else {
+          for (let i = 0; i < coeffVelocity.length; i++) {
+            coeffVelocity[i] *= 0.8;
+          }
+          centerVelX *= 0.8;
+          centerVelY *= 0.8;
+        }
+
+        if (Math.abs(centerVelX) < 0.00001) centerVelX = 0;
+        if (Math.abs(centerVelY) < 0.00001) centerVelY = 0;
+      }
+
+      smoothActive += ((mouseDown ? 1.0 : 0.0) - smoothActive) * 0.15;
+
+      // Warp smoothing - fast attack, slow release
+      const warpTarget = (!realtimeEnabled && mouseDown) ? 1.0 : 0.0;
+      if (warpTarget > smoothWarp) {
+        smoothWarp += (warpTarget - smoothWarp) * 0.15;
+      } else {
+        smoothWarp += (warpTarget - smoothWarp) * 0.03;
+      }
+
+      if (mouseDown) {
+        const aspect = canvas.width / canvas.height;
+        lastWarpX = (mouseX - 0.5) * aspect;
+        lastWarpY = mouseY - 0.5;
+      }
+
+      // Push (sticky warp): accumulate warp displacement into coefficients
+      if (stickyEnabled && !realtimeEnabled && mouseDown) {
+        const stickyRate = 0.02 + stickyIntensity * 0.08;
+        const warpMag = 0.15 * (0.3 + warpIntensity * 1.4);
+
+        const numSamples = 16;
+
+        for (let i = 0; i < numSamples; i++) {
+          const t = (i / numSamples) * Math.PI * 2;
+
+          let px = 0, py = 0;
+          for (let k = 0; k < NUM_HARMONICS; k++) {
+            const angle = k * t;
+            const cos_t = Math.cos(angle);
+            const sin_t = Math.sin(angle);
+            px += currentCoeffs[k * 4 + 0] * cos_t + currentCoeffs[k * 4 + 1] * sin_t;
+            py += currentCoeffs[k * 4 + 2] * cos_t + currentCoeffs[k * 4 + 3] * sin_t;
+          }
+          px = px * pathScale + pathCenterX;
+          py = py * pathScale + pathCenterY;
+
+          const dx = px - lastWarpX;
+          const dy = py - lastWarpY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const falloff = Math.exp(-dist * 3.0);
+
+          if (dist > 0.001 && falloff > 0.01) {
+            const pushX = (dx / dist) * warpMag * falloff;
+            const pushY = (dy / dist) * warpMag * falloff;
+
+            for (let k = 0; k < NUM_HARMONICS; k++) {
+              const angle = k * t;
+              const cos_t = Math.cos(angle);
+              const sin_t = Math.sin(angle);
+
+              const contribution = stickyRate / numSamples;
+              currentCoeffs[k * 4 + 0] += pushX * cos_t * contribution / pathScale;
+              currentCoeffs[k * 4 + 1] += pushX * sin_t * contribution / pathScale;
+              currentCoeffs[k * 4 + 2] += pushY * cos_t * contribution / pathScale;
+              currentCoeffs[k * 4 + 3] += pushY * sin_t * contribution / pathScale;
+
+              targetCoeffs[k * 4 + 0] = currentCoeffs[k * 4 + 0];
+              targetCoeffs[k * 4 + 1] = currentCoeffs[k * 4 + 1];
+              targetCoeffs[k * 4 + 2] = currentCoeffs[k * 4 + 2];
+              targetCoeffs[k * 4 + 3] = currentCoeffs[k * 4 + 3];
+            }
+          }
+        }
+      }
+
+      gl.useProgram(prog);
+      gl.enableVertexAttribArray(aLoc);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
+
+      gl.uniform2f(rLoc, canvas.width, canvas.height);
+      gl.uniform1f(phaseLoc, phase);
+      gl.uniform1f(momentumLoc, momentum);
+      gl.uniform2f(mouseLoc, mouseX, mouseY);
+      gl.uniform1f(activeLoc, smoothActive);
+
+      gl.uniform4fv(coeffsLoc, currentCoeffs);
+      gl.uniform4fv(liveCoeffsLoc, liveCoeffs);
+      gl.uniform1f(pathScaleLoc, pathScale);
+      gl.uniform1f(livePathScaleLoc, livePathScale);
+      gl.uniform2f(pathCenterLoc, pathCenterX, pathCenterY);
+      gl.uniform2f(liveCenterLoc, liveCenterX, liveCenterY);
+
+      // Live influence
+      if (isHolding && pathPoints.length >= MIN_PATH_POINTS) {
+        liveInfluence += (1.0 - liveInfluence) * 0.1;
+      } else if (!mouseDown && liveInfluence < 0.5) {
+        liveInfluence += (0.0 - liveInfluence) * 0.1;
+      }
+      gl.uniform1f(liveInfluenceLoc, liveInfluence);
+
+      // Warp effect
+      const warpMagnitude = 0.3 + warpIntensity * 1.4;
+      const warpActive = smoothWarp * warpMagnitude;
+      gl.uniform1f(warpStrengthLoc, warpActive);
+      gl.uniform2f(warpCenterLoc, lastWarpX, lastWarpY);
+
+      // Ripple warp — always on
+      gl.uniform1f(rippleWarpEnabledLoc, 1.0);
+      gl.uniform1f(rippleWarpIntensityLoc, warpMagnitude);
+
+      // Evolution uniforms
+      gl.uniform1f(uLocs.u_glowBase, params.glowBase);
+      gl.uniform1f(uLocs.u_glowMotion, params.glowMotion);
+      gl.uniform1f(uLocs.u_hueBase, params.hueBase);
+      gl.uniform1f(uLocs.u_hueRange, params.hueRange);
+      gl.uniform1f(uLocs.u_satBase, params.satBase);
+      gl.uniform1f(uLocs.u_orbitSpeed, params.orbitSpeed);
+      gl.uniform1f(uLocs.u_radiusOffset, params.radiusOffset);
+      gl.uniform1f(uLocs.u_particleCount, params.particleCount);
+      gl.uniform1f(uLocs.u_touchHueShift, params.touchHueShift);
+      gl.uniform1f(uLocs.u_warmth, smoothWarmth);
+
+      // Ripples
+      const now = performance.now();
+      ripples = ripples.filter(r => (now - r.startTime) < RIPPLE_LIFETIME);
+
+      for (let i = 0; i < 5; i++) {
+        const rip = ripples[i];
+        if (rip) {
+          const age = (now - rip.startTime) / 1000;
+          gl.uniform4f(rippleLocs[i], rip.x, rip.y, age, 0);
+        } else {
+          gl.uniform4f(rippleLocs[i], 0, 0, -1, 0);
+        }
+      }
+
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+      // Update UI
+      document.getElementById('ui').innerHTML =
+        `momentum: ${momentum.toFixed(4)}<br>` +
+        `velocity: ${velocity.toFixed(4)}<br>` +
+        `totalMove: ${touchTotalMovement.toFixed(4)}<br>` +
+        `phase: ${(phase % (Math.PI * 2)).toFixed(2)}`;
+
+      requestAnimationFrame(render);
+    }
+
+    render(0);
+  </script>
+</body>
+</html>
