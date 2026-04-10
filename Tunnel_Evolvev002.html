@@ -189,6 +189,7 @@
 <body>
 <canvas id="gl"></canvas>
 <button id="panel-toggle">+</button>
+<button id="fs-toggle" style="position:fixed;bottom:15px;right:15px;z-index:9999;background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:4px;padding:8px 12px;cursor:pointer;font-size:14px;opacity:0.6;transition:opacity 0.2s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6" onclick="if(!document.fullscreenElement){document.documentElement.requestFullscreen()}else{document.exitFullscreen()}">⛶</button>
 <div id="panel">
   <div class="panel-header">
     <h1>Tunnel Aesthetic Grammar</h1>
