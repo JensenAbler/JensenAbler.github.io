@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <title>Spiral Evolve - Visual Engine</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    canvas { display: block; width: 100%; height: 100%; }
+    #error-fallback {
+      display: none;
+      position: fixed; inset: 0;
+      background: #000;
+      color: #fff;
+      font-family: system-ui, sans-serif;
+      justify-content: center; align-items: center;
+    }
+    #error-fallback .box {
+      max-width: 28rem; padding: 2rem; border-radius: 0.5rem;
+      background: rgba(0,0,0,0.4); backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.2); text-align: center;
+    }
+    #error-fallback h2 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+    #error-fallback p { color: rgba(255,255,255,0.7); font-size: 0.875rem; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="error-fallback">
+    <div class="box">
+      <h2>Visual Experience Unavailable</h2>
+      <p id="error-message">WebGL is not supported.</p>
+    </div>
+  </div>
+
+<script>
+// ============================================================================
+//  SPIRAL EVOLVE — VISUAL ENGINE
+//  A standalone WebGL generative art system with grammar-based attractors,
+//  double-smoothed parameter interpolation, and 25+ controllable uniforms.
+//
+//  INTEGRATION POINT: Search for "EXTERNAL INPUT API" below.
+//  That section exposes the functions you need to drive visuals from
+//  external events (typing, audio analysis, sensors, etc.)
+// ============================================================================
+
+// --- Utility functions ---
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function randInRange(min, max) { return min + Math.random() * (max - min); }
+function randIntInRange(min, max) { return Math.floor(randInRange(min, max + 1)); }
+
+// ============================================================================
+//  GRAMMAR-BASED ATTRACTOR SYSTEM
+//  Each "attractor" is a combination of aesthetic choices across 8 dimensions.
+//  The grammar picks a class for each dimension, which maps to specific
+//  numeric parameter ranges. Hard constraints prevent ugly combos;
+//  soft constraints bias toward pleasing ones.
+// ============================================================================
+
+var dimensionValues = {
+  spiral_class: {
+    'none':     { spiralAmt: [0.0, 0.05], spiralTight: [1, 3] },
+    'gentle':   { spiralAmt: [0.3, 0.6],  spiralTight: [3, 6] },
+    'medium':   { spiralAmt: [0.7, 1.0],  spiralTight: [5, 10] },
+    'tight':    { spiralAmt: [1.0, 1.5],  spiralTight: [10, 16] },
+    'hypnotic': { spiralAmt: [1.5, 2.0],  spiralTight: [14, 20] }
+  },
+  wave_density: {
+    'sparse': { waveFreq: [3, 8] },
+    'medium': { waveFreq: [10, 18] },
+    'dense':  { waveFreq: [20, 30] },
+    'ultra':  { waveFreq: [32, 40] }
+  },
+  wave_character: {
+    'soft':     { waveSharp: [0.3, 0.5] },
+    'balanced': { waveSharp: [0.6, 1.0] },
+    'crisp':    { waveSharp: [1.2, 1.8] },
+    'razor':    { waveSharp: [2.0, 3.0] }
+  },
+  kaleido_class: {
+    'off':     { kaleidoAmt: [0.0, 0.05], kaleidoSegs: [3, 4] },
+    'subtle':  { kaleidoAmt: [0.2, 0.4],  kaleidoSegs: [3, 5] },
+    'medium':  { kaleidoAmt: [0.5, 0.7],  kaleidoSegs: [4, 8] },
+    'full':    { kaleidoAmt: [0.8, 1.0],  kaleidoSegs: [5, 10] },
+    'fractal': { kaleidoAmt: [0.9, 1.0],  kaleidoSegs: [10, 16] }
+  },
+  spoke_class: {
+    'none':      { spokeCount: [0, 0],   spokeInt: [0, 0] },
+    'subtle':    { spokeCount: [3, 5],   spokeInt: [0.2, 0.35] },
+    'defined':   { spokeCount: [5, 8],   spokeInt: [0.4, 0.6] },
+    'dominant':  { spokeCount: [8, 16],  spokeInt: [0.6, 0.85] },
+    'starburst': { spokeCount: [16, 24], spokeInt: [0.7, 0.95] }
+  },
+  motion_class: {
+    'frozen':    { waveSpeed: [0, 0.3],    spiralRot: [0, 0.02],   wobbleSpeed: [0.01, 0.03] },
+    'glacial':   { waveSpeed: [0.3, 0.8],  spiralRot: [0.02, 0.08], wobbleSpeed: [0.02, 0.05] },
+    'breathing': { waveSpeed: [1.0, 2.0],  spiralRot: [0.1, 0.2],  wobbleSpeed: [0.06, 0.1] },
+    'flowing':   { waveSpeed: [2.5, 4.0],  spiralRot: [0.2, 0.4],  wobbleSpeed: [0.1, 0.16] },
+    'rushing':   { waveSpeed: [4.5, 7.0],  spiralRot: [0.4, 0.7],  wobbleSpeed: [0.16, 0.24] }
+  },
+  color_mode: {
+    'mono':      { saturation: [0.0, 0.05], chromaOffset: [0.0, 0.01] },
+    'tinted':    { saturation: [0.15, 0.3], chromaOffset: [0.01, 0.03] },
+    'chromatic': { saturation: [0.35, 0.5], chromaOffset: [0.03, 0.06] },
+    'prismatic': { saturation: [0.5, 0.7],  chromaOffset: [0.06, 0.1] },
+    'separated': { saturation: [0.3, 0.5],  chromaOffset: [0.1, 0.15] }
+  },
+  glow_character: {
+    'dark':     { centerGlow: [0.1, 0.25],  glowFalloff: [4, 6],   brightness: [0.4, 0.5] },
+    'balanced': { centerGlow: [0.35, 0.5],  glowFalloff: [2.5, 4], brightness: [0.5, 0.65] },
+    'radiant':  { centerGlow: [0.6, 0.8],   glowFalloff: [1.5, 2.5], brightness: [0.65, 0.8] },
+    'blazing':  { centerGlow: [0.85, 1.0],  glowFalloff: [1, 2],   brightness: [0.8, 1.0] }
+  }
+};
+
+var hardConstraints = [
+  { condition: function(a) { return a.spiral_class === 'hypnotic'; },
+    requires:  function(a) { return a.kaleido_class !== 'off'; } },
+  { condition: function(a) { return a.kaleido_class === 'fractal'; },
+    requires:  function(a) { return a.spiral_class !== 'none'; } },
+  { condition: function(a) { return a.spoke_class === 'starburst'; },
+    requires:  function(a) { return a.wave_character === 'crisp' || a.wave_character === 'razor'; } },
+  { condition: function(a) { return a.motion_class === 'rushing'; },
+    requires:  function(a) { return a.wave_density !== 'ultra'; } },
+  { condition: function(a) { return a.color_mode === 'separated'; },
+    requires:  function(a) { return a.motion_class !== 'frozen'; } }
+];
+
+var softConstraints = [
+  { condition: function(a) { return a.spiral_class === 'tight' || a.spiral_class === 'hypnotic'; },
+    prefers:   function(a) { return a.wave_character === 'crisp' || a.wave_character === 'razor'; },
+    strength: 0.7 },
+  { condition: function(a) { return a.wave_density === 'sparse'; },
+    prefers:   function(a) { return a.wave_character === 'soft' || a.wave_character === 'balanced'; },
+    strength: 0.6 },
+  { condition: function(a) { return a.glow_character === 'radiant' || a.glow_character === 'blazing'; },
+    prefers:   function(a) { return a.color_mode !== 'mono'; },
+    strength: 0.8 },
+  { condition: function(a) { return a.kaleido_class === 'full' || a.kaleido_class === 'fractal'; },
+    prefers:   function(a) { return a.spoke_class !== 'none'; },
+    strength: 0.5 },
+  { condition: function(a) { return a.motion_class === 'frozen' || a.motion_class === 'glacial'; },
+    prefers:   function(a) { return a.wave_character === 'soft' || a.wave_character === 'balanced'; },
+    strength: 0.6 }
+];
+
+function checkHardConstraints(attractor) {
+  for (var i = 0; i < hardConstraints.length; i++) {
+    if (hardConstraints[i].condition(attractor) && !hardConstraints[i].requires(attractor)) return false;
+  }
+  return true;
+}
+
+function scoreSoftConstraints(attractor) {
+  var score = 1.0;
+  for (var i = 0; i < softConstraints.length; i++) {
+    if (softConstraints[i].condition(attractor) && !softConstraints[i].prefers(attractor)) {
+      score *= (1.0 - softConstraints[i].strength * 0.5);
+    }
+  }
+  return score;
+}
+
+function generateAttractor() {
+  for (var attempt = 0; attempt < 50; attempt++) {
+    var attractor = {
+      spiral_class:   pick(Object.keys(dimensionValues.spiral_class)),
+      wave_density:   pick(Object.keys(dimensionValues.wave_density)),
+      wave_character: pick(Object.keys(dimensionValues.wave_character)),
+      kaleido_class:  pick(Object.keys(dimensionValues.kaleido_class)),
+      spoke_class:    pick(Object.keys(dimensionValues.spoke_class)),
+      motion_class:   pick(Object.keys(dimensionValues.motion_class)),
+      color_mode:     pick(Object.keys(dimensionValues.color_mode)),
+      glow_character: pick(Object.keys(dimensionValues.glow_character))
+    };
+    if (!checkHardConstraints(attractor)) continue;
+    if (Math.random() > scoreSoftConstraints(attractor)) continue;
+
+    var resolved = {};
+    for (var dim in attractor) {
+      var dimVals = dimensionValues[dim];
+      if (!dimVals) continue;
+      var ranges = dimVals[attractor[dim]];
+      if (!ranges) continue;
+      for (var param in ranges) {
+        resolved[param] = randInRange(ranges[param][0], ranges[param][1]);
+      }
+    }
+    resolved.spokeSharp  = randInRange(1.5, 3.5);
+    resolved.spokeRot    = randInRange(0.2, 0.8);
+    resolved.kaleidoRot  = randInRange(0.05, 0.2);
+    resolved.breathAmt   = randInRange(0.08, 0.2);
+    resolved.breathSpeed = randInRange(0.4, 0.9);
+    resolved.hueSpeed    = randInRange(0.05, 0.2);
+    resolved.gamma       = randInRange(0.8, 1.0);
+    resolved.vignette    = randInRange(0.15, 0.35);
+    resolved._grammar    = attractor;
+    resolved._signature  = attractor.spiral_class + '/' + attractor.kaleido_class + '/' + attractor.wave_density + '/' + attractor.motion_class;
+    return resolved;
+  }
+  return generateAttractor();
+}
+
+var POOL_SIZE = 12;
+function refreshPool() {
+  var pool = [];
+  for (var i = 0; i < POOL_SIZE; i++) pool.push(generateAttractor());
+  return pool;
+}
+
+// ============================================================================
+//  WEBGL SHADERS
+// ============================================================================
+
+var fragmentShader = [
+'precision mediump float;',
+'uniform float t;',
+'uniform vec2 r;',
+'',
+'uniform float u_waveFreq;',
+'uniform float u_waveSpeed;',
+'uniform float u_waveSharp;',
+'uniform float u_spiralAmt;',
+'uniform float u_spiralTight;',
+'uniform float u_spiralRot;',
+'uniform float u_spiralWobble;',
+'uniform float u_wobbleSpeed;',
+'uniform float u_kaleidoAmt;',
+'uniform float u_kaleidoSegs;',
+'uniform float u_kaleidoRot;',
+'uniform float u_spokeCount;',
+'uniform float u_spokeInt;',
+'uniform float u_spokeSharp;',
+'uniform float u_spokeRot;',
+'uniform float u_chromaOffset;',
+'uniform float u_breathAmt;',
+'uniform float u_breathSpeed;',
+'uniform float u_hueSpeed;',
+'uniform float u_saturation;',
+'uniform float u_centerGlow;',
+'uniform float u_glowFalloff;',
+'uniform float u_brightness;',
+'uniform float u_gamma;',
+'uniform float u_vignette;',
+'',
+'uniform float u_phaseWave;',
+'uniform float u_phaseSpiralRot;',
+'uniform float u_phaseWobble;',
+'uniform float u_phaseKaleidoRot;',
+'uniform float u_phaseSpokeRot;',
+'uniform float u_phaseHue;',
+'uniform float u_phaseBreath;',
+'',
+'#define PI 3.14159265',
+'#define TAU 6.28318530',
+'',
+'vec2 polarFold(vec2 p, float segments) {',
+'  float a = atan(p.y, p.x);',
+'  float r = length(p);',
+'  a = mod(a, TAU / segments) - PI / segments;',
+'  return vec2(cos(a), sin(a)) * r;',
+'}',
+'',
+'void main() {',
+'  vec2 uv = (gl_FragCoord.xy - r * 0.5) / r.y;',
+'  float breath = sin(u_phaseBreath) * u_breathAmt + sin(u_phaseBreath * 0.43) * u_breathAmt * 0.67;',
+'  vec3 col = vec3(0.0);',
+'  for(int i = 0; i < 3; i++) {',
+'    float fi = float(i);',
+'    float chromaOffset = fi * u_chromaOffset;',
+'    vec2 p = uv;',
+'    if(u_spiralAmt > 0.01) {',
+'      float radius = length(p);',
+'      float angle = atan(p.y, p.x);',
+'      float wobble = sin(u_phaseWobble + chromaOffset) * (1.0 + u_spiralWobble);',
+'      angle += radius * u_spiralAmt * u_spiralTight * wobble;',
+'      angle += u_phaseSpiralRot + chromaOffset * 0.5;',
+'      p = vec2(cos(angle), sin(angle)) * radius;',
+'    }',
+'    vec2 folded = polarFold(p, u_kaleidoSegs);',
+'    p = mix(p, folded, u_kaleidoAmt);',
+'    float ka = u_phaseKaleidoRot + chromaOffset * 0.3;',
+'    float rotAmt = u_kaleidoAmt;',
+'    float ca = cos(ka * rotAmt);',
+'    float sa = sin(ka * rotAmt);',
+'    p = vec2(p.x * ca - p.y * sa, p.x * sa + p.y * ca);',
+'    float waves = sin(length(p) * (u_waveFreq + breath * 3.0) - u_phaseWave - chromaOffset);',
+'    waves = abs(waves);',
+'    waves = pow(waves, u_waveSharp);',
+'    float pattern = waves;',
+'    if(u_spokeCount > 0.5 && u_spokeInt > 0.01) {',
+'      float angle = atan(p.y, p.x);',
+'      float spokes = abs(sin(angle * u_spokeCount + u_phaseSpokeRot + chromaOffset));',
+'      spokes = pow(spokes, u_spokeSharp);',
+'      pattern = mix(pattern, pattern * (1.0 - u_spokeInt + spokes * u_spokeInt), 1.0);',
+'    }',
+'    float intensity = pattern;',
+'    float glow = exp(-length(uv) * (u_glowFalloff - breath)) * u_centerGlow;',
+'    intensity += glow;',
+'    intensity = clamp(intensity, 0.0, 2.0);',
+'    intensity = pow(intensity * u_brightness, 1.2);',
+'    col[i] = intensity;',
+'  }',
+'  vec3 tint = vec3(1.0);',
+'  tint.r = 1.0 - u_saturation + u_saturation * (0.5 + 0.5 * sin(u_phaseHue));',
+'  tint.g = 1.0 - u_saturation + u_saturation * (0.5 + 0.5 * sin(u_phaseHue + TAU / 3.0));',
+'  tint.b = 1.0 - u_saturation + u_saturation * (0.5 + 0.5 * sin(u_phaseHue + TAU * 2.0 / 3.0));',
+'  col *= tint;',
+'  col *= 1.0 - length(uv) * u_vignette;',
+'  col = col / (col + 0.6);',
+'  col = pow(col, vec3(u_gamma));',
+'  gl_FragColor = vec4(col, 1.0);',
+'}'
+].join('\n');
+
+var vertexShader = 'attribute vec2 a;void main(){gl_Position=vec4(a,0,1);}';
+
+// ============================================================================
+//  WEBGL SETUP
+// ============================================================================
+
+var canvas = document.getElementById('canvas');
+var gl = canvas.getContext('webgl', { antialias: false, powerPreference: 'high-performance' });
+
+if (!gl) {
+  document.getElementById('error-fallback').style.display = 'flex';
+  document.getElementById('error-message').textContent = 'WebGL is not supported in your browser.';
+  throw new Error('No WebGL');
+}
+
+function compile(src, type) {
+  var s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error('Shader error:', gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
+
+var prog = gl.createProgram();
+var vs = compile(vertexShader, gl.VERTEX_SHADER);
+var fs = compile(fragmentShader, gl.FRAGMENT_SHADER);
+if (!vs || !fs) throw new Error('Shader compilation failed');
+gl.attachShader(prog, vs);
+gl.attachShader(prog, fs);
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error('Program link failed');
+
+var buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+
+var aLoc = gl.getAttribLocation(prog, 'a');
+var tLoc = gl.getUniformLocation(prog, 't');
+var rLoc = gl.getUniformLocation(prog, 'r');
+
+// ============================================================================
+//  PARAMETER SYSTEM
+//  These 25 parameters control every aspect of the visual output.
+//  They flow through a double-smoothing pipeline:
+//    targets → smoothedTargets → params → shader uniforms
+// ============================================================================
+
+var paramNames = [
+  'waveFreq', 'waveSpeed', 'waveSharp', 'spiralAmt', 'spiralTight', 'spiralRot',
+  'spiralWobble', 'wobbleSpeed', 'kaleidoAmt', 'kaleidoSegs', 'kaleidoRot',
+  'spokeCount', 'spokeInt', 'spokeSharp', 'spokeRot', 'chromaOffset',
+  'breathAmt', 'breathSpeed', 'hueSpeed', 'saturation', 'centerGlow',
+  'glowFalloff', 'brightness', 'gamma', 'vignette'
+];
+
+var uniforms = {};
+paramNames.forEach(function(name) {
+  uniforms[name] = gl.getUniformLocation(prog, 'u_' + name);
+});
+
+var phaseUniforms = {
+  wave:      gl.getUniformLocation(prog, 'u_phaseWave'),
+  spiralRot: gl.getUniformLocation(prog, 'u_phaseSpiralRot'),
+  wobble:    gl.getUniformLocation(prog, 'u_phaseWobble'),
+  kaleidoRot: gl.getUniformLocation(prog, 'u_phaseKaleidoRot'),
+  spokeRot:  gl.getUniformLocation(prog, 'u_phaseSpokeRot'),
+  hue:       gl.getUniformLocation(prog, 'u_phaseHue'),
+  breath:    gl.getUniformLocation(prog, 'u_phaseBreath')
+};
+
+// The valid range for each parameter — use this when setting values externally
+var paramRanges = {
+  waveFreq: [3, 40], waveSpeed: [0, 7], waveSharp: [0.2, 3],
+  spiralAmt: [0, 2], spiralTight: [1, 20], spiralRot: [0, 0.7],
+  spiralWobble: [0, 1], wobbleSpeed: [0.05, 0.24], kaleidoAmt: [0, 1],
+  kaleidoSegs: [2, 16], kaleidoRot: [0, 0.3], spokeCount: [0, 24],
+  spokeInt: [0, 1], spokeSharp: [0.5, 4], spokeRot: [0, 1],
+  chromaOffset: [0, 0.15], breathAmt: [0, 0.3], breathSpeed: [0.2, 1.2],
+  hueSpeed: [0, 0.3], saturation: [0, 0.7], centerGlow: [0, 1],
+  glowFalloff: [1, 6], brightness: [0.3, 1.2], gamma: [0.7, 1.2], vignette: [0, 0.5]
+};
+
+var params = {
+  waveFreq: 15.0, waveSpeed: 2.0, waveSharp: 0.5, spiralAmt: 1.0,
+  spiralTight: 8.0, spiralRot: 0.2, spiralWobble: 0.3, wobbleSpeed: 0.5,
+  kaleidoAmt: 0.7, kaleidoSegs: 6.0, kaleidoRot: 0.1, spokeCount: 6.0,
+  spokeInt: 0.5, spokeSharp: 2.0, spokeRot: 0.5, chromaOffset: 0.025,
+  breathAmt: 0.15, breathSpeed: 0.7, hueSpeed: 0.1, saturation: 0.3,
+  centerGlow: 0.5, glowFalloff: 3.0, brightness: 0.6, gamma: 0.9, vignette: 0.25
+};
+
+var targets = {};
+var smoothedTargets = {};
+for (var k in params) { targets[k] = params[k]; smoothedTargets[k] = params[k]; }
+
+// ============================================================================
+//  *** EXTERNAL INPUT API ***
+//  This is the primary integration point for driving visuals from outside.
+//
+//  To change how the visuals look, set values on the `targets` object.
+//  The double-smoothing system will interpolate toward those values smoothly.
+//  Values are automatically clamped to valid ranges.
+//
+//  EXAMPLE — respond to a keypress:
+//    document.addEventListener('keydown', function(e) {
+//      targets.waveSpeed = 6.0;    // speed up waves
+//      targets.brightness = 1.0;   // flash brighter
+//      targets.spiralRot = 0.6;    // spin faster
+//    });
+//    document.addEventListener('keyup', function(e) {
+//      targets.waveSpeed = 2.0;    // ease back
+//      targets.brightness = 0.6;
+//      targets.spiralRot = 0.2;
+//    });
+//
+//  EXAMPLE — map typing speed to visual intensity:
+//    var typingSpeed = 0;  // characters per second
+//    function onTypingSpeedUpdate(cps) {
+//      typingSpeed = cps;
+//      var intensity = Math.min(cps / 10, 1.0);  // normalize 0-10 cps to 0-1
+//      targets.waveSpeed   = lerp(1.0, 6.0, intensity);
+//      targets.brightness  = lerp(0.5, 1.0, intensity);
+//      targets.spiralRot   = lerp(0.05, 0.5, intensity);
+//      targets.saturation  = lerp(0.1, 0.6, intensity);
+//      targets.centerGlow  = lerp(0.3, 0.9, intensity);
+//    }
+//    function lerp(a, b, t) { return a + (b - a) * t; }
+//
+//  AVAILABLE FUNCTIONS:
+//    setTarget(paramName, value)        — set a single target with clamping
+//    setTargets(obj)                    — set multiple targets at once
+//    getParams()                        — get current rendered parameter values
+//    getTargets()                       — get current target values
+//    getParamRanges()                   — get valid ranges for all params
+//    setEvolutionEnabled(bool)          — pause/resume autonomous evolution
+//    triggerNewAttractor()              — immediately pick a new attractor
+//    setEvolutionSpeed(multiplier)      — speed up or slow down evolution (1.0 = normal)
+//
+//  PARAMETER QUICK REFERENCE:
+//    waveFreq [3-40]       — number of concentric rings
+//    waveSpeed [0-7]       — how fast rings pulse outward
+//    waveSharp [0.2-3]     — ring edge sharpness (soft to razor)
+//    spiralAmt [0-2]       — how much spiral twist
+//    spiralTight [1-20]    — spiral tightness
+//    spiralRot [0-0.7]     — spiral rotation speed
+//    kaleidoAmt [0-1]      — kaleidoscope effect strength
+//    kaleidoSegs [2-16]    — kaleidoscope segment count
+//    spokeCount [0-24]     — number of radial spokes
+//    spokeInt [0-1]        — spoke visibility intensity
+//    saturation [0-0.7]    — color saturation (0 = monochrome)
+//    brightness [0.3-1.2]  — overall brightness
+//    centerGlow [0-1]      — bright center glow amount
+//    glowFalloff [1-6]     — how fast glow fades from center
+//    vignette [0-0.5]      — edge darkening amount
+//    hueSpeed [0-0.3]      — color cycling speed
+//    chromaOffset [0-0.15] — RGB channel separation
+//    breathAmt [0-0.3]     — organic "breathing" pulse amount
+//    breathSpeed [0.2-1.2] — breathing pulse speed
+// ============================================================================
+
+var evolutionEnabled = true;
+var evolutionSpeedMultiplier = 1.0;
+
+function setTarget(name, value) {
+  if (paramRanges[name]) {
+    targets[name] = Math.max(paramRanges[name][0], Math.min(paramRanges[name][1], value));
+  }
+}
+
+function setTargets(obj) {
+  for (var name in obj) {
+    if (obj.hasOwnProperty(name)) setTarget(name, obj[name]);
+  }
+}
+
+function getParams() {
+  var copy = {};
+  for (var k in params) copy[k] = params[k];
+  return copy;
+}
+
+function getTargets() {
+  var copy = {};
+  for (var k in targets) copy[k] = targets[k];
+  return copy;
+}
+
+function getParamRanges() {
+  var copy = {};
+  for (var k in paramRanges) copy[k] = paramRanges[k].slice();
+  return copy;
+}
+
+function setEvolutionEnabled(enabled) {
+  evolutionEnabled = !!enabled;
+}
+
+function setEvolutionSpeed(multiplier) {
+  evolutionSpeedMultiplier = Math.max(0, multiplier);
+}
+
+function triggerNewAttractor() {
+  attractorPool = refreshPool();
+  attractorCommitment.intervalsRemaining = 0;
+}
+
+// Expose API globally for external scripts
+window.spiralEvolve = {
+  setTarget: setTarget,
+  setTargets: setTargets,
+  getParams: getParams,
+  getTargets: getTargets,
+  getParamRanges: getParamRanges,
+  setEvolutionEnabled: setEvolutionEnabled,
+  setEvolutionSpeed: setEvolutionSpeed,
+  triggerNewAttractor: triggerNewAttractor,
+  paramRanges: paramRanges
+};
+
+// ============================================================================
+//  EVOLUTION SYSTEM
+//  Autonomous parameter evolution across 5 timescales.
+//  This runs in the background, continuously drifting parameters toward
+//  new aesthetic states. External input can override or blend with this.
+// ============================================================================
+
+var evolutionLayers = {
+  glacial: { params: ['spiralAmt', 'kaleidoAmt', 'kaleidoSegs'], interval: 15000, drift: 0.1 },
+  slow:    { params: ['spiralTight', 'waveFreq', 'spokeCount'], interval: 8000, drift: 0.15 },
+  medium:  { params: ['waveSharp', 'spokeInt', 'saturation', 'chromaOffset'], interval: 5000, drift: 0.18 },
+  fast:    { params: ['waveSpeed', 'spiralRot', 'wobbleSpeed', 'centerGlow'], interval: 3000, drift: 0.2 },
+  drift:   { params: ['breathAmt', 'breathSpeed', 'hueSpeed', 'vignette', 'brightness', 'glowFalloff'], interval: 4000, drift: 0.12 }
+};
+
+var lastEvolutionTime = {};
+for (var layer in evolutionLayers) lastEvolutionTime[layer] = 0;
+
+var attractorPool = refreshPool();
+var attractorCommitment = {
+  currentAttractor: null,
+  intervalsRemaining: 0,
+  minCommitIntervals: 3,
+  maxCommitIntervals: 6
+};
+var glacialGenerations = 0;
+
+function getAttractorForEvolution() {
+  var ac = attractorCommitment;
+  if (ac.intervalsRemaining > 0) { ac.intervalsRemaining--; return ac.currentAttractor; }
+  if (Math.random() < 0.35) {
+    ac.currentAttractor = pick(attractorPool);
+    ac.intervalsRemaining = randIntInRange(ac.minCommitIntervals, ac.maxCommitIntervals);
+    return ac.currentAttractor;
+  }
+  ac.currentAttractor = null;
+  return null;
+}
+
+function evolveLayer(layerName, now) {
+  if (!evolutionEnabled) return;
+  var layer = evolutionLayers[layerName];
+  var effectiveInterval = layer.interval / Math.max(0.01, evolutionSpeedMultiplier);
+  if (now - lastEvolutionTime[layerName] < effectiveInterval) return;
+  lastEvolutionTime[layerName] = now;
+
+  var attractor = getAttractorForEvolution();
+  for (var i = 0; i < layer.params.length; i++) {
+    var param = layer.params[i];
+    if (!paramRanges[param]) continue;
+    var min = paramRanges[param][0], max = paramRanges[param][1];
+    var range = max - min;
+    var newTarget;
+    if (attractor && attractor[param] !== undefined) {
+      newTarget = attractor[param] + (Math.random() - 0.5) * range * 0.15;
+    } else {
+      newTarget = targets[param] + (Math.random() - 0.5) * range * layer.drift;
+    }
+    targets[param] = Math.max(min, Math.min(max, newTarget));
+  }
+  if (layerName === 'glacial') {
+    glacialGenerations++;
+    if (glacialGenerations % 20 === 0) attractorPool = refreshPool();
+  }
+}
+
+// ============================================================================
+//  DOUBLE-SMOOTHED INTERPOLATION
+//  targets → smoothedTargets (slow follow) → params (faster follow)
+//  This creates organic, never-jarring transitions.
+// ============================================================================
+
+var targetSmoothingSpeed = {
+  spiralAmt: 0.15, spiralTight: 0.2, kaleidoAmt: 0.2, waveFreq: 0.2, spokeInt: 0.25,
+  waveSpeed: 0.3, spiralRot: 0.25, wobbleSpeed: 0.25, spokeRot: 0.3, kaleidoRot: 0.3,
+  waveSharp: 0.4, saturation: 0.4, chromaOffset: 0.4, centerGlow: 0.4, glowFalloff: 0.4,
+  brightness: 0.4, vignette: 0.4, breathAmt: 0.35, breathSpeed: 0.35, hueSpeed: 0.4,
+  gamma: 0.4, spokeSharp: 0.35, spiralWobble: 0.3
+};
+
+var paramFollowSpeed = {
+  spiralAmt: 0.4, spiralTight: 0.5, kaleidoAmt: 0.5, waveFreq: 0.5, spokeInt: 0.6,
+  waveSpeed: 0.6, spiralRot: 0.5, wobbleSpeed: 0.5, spokeRot: 0.6, kaleidoRot: 0.6,
+  waveSharp: 0.8, saturation: 0.8, chromaOffset: 0.8, centerGlow: 0.8, glowFalloff: 0.8,
+  brightness: 0.8, vignette: 0.8, breathAmt: 0.7, breathSpeed: 0.6, hueSpeed: 0.8,
+  gamma: 0.8, spokeSharp: 0.7, spiralWobble: 0.6
+};
+
+function interpolateParams(dt) {
+  for (var param in params) {
+    if (param === 'kaleidoSegs' || param === 'spokeCount') continue;
+    if (param === 'kaleidoAmt' && kaleidoTransition.isTransitioning) continue;
+    var targetSmooth = targetSmoothingSpeed[param] || 0.3;
+    var paramFollow = paramFollowSpeed[param] || 0.6;
+    var targetAlpha = 1 - Math.exp(-targetSmooth * dt * 3);
+    smoothedTargets[param] += (targets[param] - smoothedTargets[param]) * targetAlpha;
+    var paramAlpha = 1 - Math.exp(-paramFollow * dt * 3);
+    params[param] += (smoothedTargets[param] - params[param]) * paramAlpha;
+  }
+}
+
+// --- Spoke count smoothing (discrete parameter) ---
+var spokeSmoothing = { smoothedTarget: 6.0, targetSpeed: 0.15, followSpeed: 0.25 };
+function updateSpokeCount(dt) {
+  var s = spokeSmoothing;
+  var targetAlpha = 1 - Math.exp(-s.targetSpeed * dt * 3);
+  s.smoothedTarget += (targets.spokeCount - s.smoothedTarget) * targetAlpha;
+  var paramAlpha = 1 - Math.exp(-s.followSpeed * dt * 3);
+  params.spokeCount += (s.smoothedTarget - params.spokeCount) * paramAlpha;
+}
+
+// --- Kaleidoscope segment transition (dissolve/reform) ---
+var kaleidoTransition = {
+  currentSegs: 6, targetSegs: 6, queuedSegs: 6,
+  isTransitioning: false, transitionPhase: 0,
+  savedKaleidoAmt: 0.7, transitionSpeed: 0.12,
+  maxDeltaPerTransition: 6, minTimeBetweenTransitions: 6.0,
+  lastTransitionTime: -6000
+};
+
+function smoothstep(t) {
+  t = Math.max(0, Math.min(1, t));
+  return t * t * (3 - 2 * t);
+}
+
+function updateKaleidoTransition(dt, now) {
+  var kt = kaleidoTransition;
+  kt.queuedSegs = Math.round(targets.kaleidoSegs);
+  var timeSinceLastTransition = (now - kt.lastTransitionTime) / 1000;
+
+  if (!kt.isTransitioning && kt.queuedSegs !== kt.currentSegs) {
+    if (timeSinceLastTransition >= kt.minTimeBetweenTransitions) {
+      var delta = kt.queuedSegs - kt.currentSegs;
+      var clampedDelta = Math.max(-kt.maxDeltaPerTransition, Math.min(kt.maxDeltaPerTransition, delta));
+      kt.targetSegs = kt.currentSegs + clampedDelta;
+      kt.isTransitioning = true;
+      kt.transitionPhase = 0;
+      kt.savedKaleidoAmt = params.kaleidoAmt;
+      kt.lastTransitionTime = now;
+    }
+  }
+
+  if (kt.isTransitioning) {
+    kt.transitionPhase += dt * kt.transitionSpeed;
+    if (kt.transitionPhase < 1.0) {
+      params.kaleidoSegs = kt.currentSegs;
+      params.kaleidoAmt = kt.savedKaleidoAmt * (1.0 - smoothstep(kt.transitionPhase));
+    } else if (kt.transitionPhase < 1.5) {
+      params.kaleidoAmt = 0;
+      if (kt.currentSegs !== kt.targetSegs) kt.currentSegs = kt.targetSegs;
+      params.kaleidoSegs = kt.currentSegs;
+    } else if (kt.transitionPhase < 2.5) {
+      params.kaleidoSegs = kt.currentSegs;
+      params.kaleidoAmt = kt.savedKaleidoAmt * smoothstep(kt.transitionPhase - 1.5);
+    } else {
+      params.kaleidoAmt = kt.savedKaleidoAmt;
+      params.kaleidoSegs = kt.currentSegs;
+      kt.isTransitioning = false;
+      kt.transitionPhase = 0;
+    }
+  } else {
+    params.kaleidoSegs = kt.currentSegs;
+  }
+}
+
+// ============================================================================
+//  PHASE ACCUMULATORS & RENDER LOOP
+// ============================================================================
+
+var phase = { wave: 0, spiralRot: 0, wobble: 0, kaleidoRot: 0, spokeRot: 0, hue: 0, breath: 0 };
+var smoothedSpeeds = {
+  waveSpeed: 2.0, spiralRot: 0.2, wobbleSpeed: 0.5, kaleidoRot: 0.1,
+  spokeRot: 0.5, hueSpeed: 0.1, breathSpeed: 0.7
+};
+
+function updateSmoothedSpeeds(dt) {
+  var speedAlpha = 1 - Math.exp(-0.5 * dt * 3);
+  smoothedSpeeds.waveSpeed    += (params.waveSpeed - smoothedSpeeds.waveSpeed) * speedAlpha;
+  smoothedSpeeds.spiralRot    += (params.spiralRot - smoothedSpeeds.spiralRot) * speedAlpha;
+  smoothedSpeeds.wobbleSpeed  += (params.wobbleSpeed - smoothedSpeeds.wobbleSpeed) * speedAlpha;
+  smoothedSpeeds.kaleidoRot   += (params.kaleidoRot - smoothedSpeeds.kaleidoRot) * speedAlpha;
+  smoothedSpeeds.spokeRot     += (params.spokeRot - smoothedSpeeds.spokeRot) * speedAlpha;
+  smoothedSpeeds.hueSpeed     += (params.hueSpeed - smoothedSpeeds.hueSpeed) * speedAlpha;
+  smoothedSpeeds.breathSpeed  += (params.breathSpeed - smoothedSpeeds.breathSpeed) * speedAlpha;
+}
+
+function resize() {
+  var dpr = Math.min(window.devicePixelRatio, 1.5);
+  canvas.width = window.innerWidth * dpr;
+  canvas.height = window.innerHeight * dpr;
+  gl.viewport(0, 0, canvas.width, canvas.height);
+}
+window.addEventListener('resize', resize);
+resize();
+
+var startTime = performance.now();
+var lastFrame = startTime;
+
+function render() {
+  var now = performance.now();
+  var time = (now - startTime) / 1000;
+  var dt = Math.min((now - lastFrame) / 1000, 0.1);
+  lastFrame = now;
+
+  updateSmoothedSpeeds(dt);
+
+  phase.wave      += dt * smoothedSpeeds.waveSpeed;
+  phase.spiralRot += dt * smoothedSpeeds.spiralRot;
+  phase.wobble    += dt * smoothedSpeeds.wobbleSpeed;
+  phase.kaleidoRot += dt * smoothedSpeeds.kaleidoRot;
+  phase.spokeRot  += dt * smoothedSpeeds.spokeRot;
+  phase.hue       += dt * smoothedSpeeds.hueSpeed;
+  phase.breath    += dt * smoothedSpeeds.breathSpeed;
+
+  for (var layerName in evolutionLayers) {
+    evolveLayer(layerName, now);
+  }
+
+  interpolateParams(dt);
+  updateKaleidoTransition(dt, now);
+  updateSpokeCount(dt);
+
+  gl.useProgram(prog);
+  gl.enableVertexAttribArray(aLoc);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
+  gl.uniform1f(tLoc, time);
+  gl.uniform2f(rLoc, canvas.width, canvas.height);
+
+  paramNames.forEach(function(name) {
+    if (uniforms[name]) gl.uniform1f(uniforms[name], params[name]);
+  });
+
+  gl.uniform1f(phaseUniforms.wave, phase.wave);
+  gl.uniform1f(phaseUniforms.spiralRot, phase.spiralRot);
+  gl.uniform1f(phaseUniforms.wobble, phase.wobble);
+  gl.uniform1f(phaseUniforms.kaleidoRot, phase.kaleidoRot);
+  gl.uniform1f(phaseUniforms.spokeRot, phase.spokeRot);
+  gl.uniform1f(phaseUniforms.hue, phase.hue);
+  gl.uniform1f(phaseUniforms.breath, phase.breath);
+
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  requestAnimationFrame(render);
+}
+
+render();
+</script>
+</body>
+</html>

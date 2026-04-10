@@ -1,0 +1,2013 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Phase Field</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; overflow: hidden; font-family: -apple-system, sans-serif; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    
+    .control-panel {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: rgba(10, 10, 20, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      padding: 16px;
+      width: 340px;
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      overflow-x: hidden;
+      z-index: 200;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.8);
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.2) transparent;
+      overscroll-behavior: contain;
+      touch-action: pan-y;
+    }
+    
+    .control-panel::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    .control-panel::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.2);
+      border-radius: 3px;
+    }
+    
+    .control-panel h3 {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: rgba(255, 255, 255, 0.5);
+      margin: 12px 0 8px 0;
+      padding-bottom: 4px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .control-panel h3:first-child {
+      margin-top: 0;
+    }
+    
+    .control-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+      gap: 8px;
+    }
+    
+    .control-row label {
+      flex: 0 0 90px;
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.6);
+    }
+    
+    .control-row input[type="range"] {
+      flex: 1;
+      height: 6px;
+      -webkit-appearance: none;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      outline: none;
+      touch-action: pan-x;
+      cursor: pointer;
+      padding: 8px 0;
+      margin: -8px 0;
+      background-clip: content-box;
+    }
+    
+    .control-row input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      background: #22d3ee;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(34, 211, 238, 0.5);
+    }
+    
+    .control-row input[type="range"]::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      background: #22d3ee;
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
+    }
+    
+    .control-row .value {
+      flex: 0 0 55px;
+      text-align: right;
+      font-size: 10px;
+      color: #22d3ee;
+    }
+    
+    .control-row.log-control {
+      flex-wrap: wrap;
+    }
+    
+    .log-buttons {
+      display: flex;
+      gap: 4px;
+      flex: 1;
+      justify-content: center;
+    }
+    
+    .log-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: rgba(255, 255, 255, 0.7);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      min-width: 32px;
+    }
+    
+    .log-btn:hover {
+      background: rgba(34, 211, 238, 0.2);
+      border-color: rgba(34, 211, 238, 0.4);
+    }
+    
+    .log-btn:active {
+      background: rgba(34, 211, 238, 0.3);
+      transform: scale(0.95);
+    }
+    
+    .log-btn.magnitude {
+      font-weight: bold;
+      min-width: 40px;
+    }
+    
+    .log-value-display {
+      flex: 0 0 70px;
+      text-align: center;
+      font-size: 11px;
+      color: #22d3ee;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 4px 6px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    
+    .control-row.locked label {
+      color: rgba(255, 255, 255, 0.3);
+    }
+    
+    .control-row.locked input[type="range"]::-webkit-slider-thumb {
+      background: rgba(255, 255, 255, 0.3);
+      box-shadow: none;
+    }
+    
+    .control-row.locked .value {
+      color: rgba(255, 255, 255, 0.3);
+    }
+    
+    .lock-btn {
+      flex: 0 0 20px;
+      width: 20px;
+      height: 20px;
+      background: none;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+    
+    .lock-btn:hover {
+      border-color: rgba(255, 255, 255, 0.4);
+      color: rgba(255, 255, 255, 0.7);
+    }
+    
+    .lock-btn.locked {
+      background: rgba(244, 208, 63, 0.2);
+      border-color: rgba(244, 208, 63, 0.5);
+      color: #f4d03f;
+    }
+    
+    .panel-toggle {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: rgba(20, 20, 35, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 16px;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      cursor: pointer;
+      z-index: 201;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .panel-toggle.hidden {
+      display: none;
+    }
+    
+    .control-panel.hidden {
+      display: none;
+    }
+    
+    .fullscreen-btn {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      background: rgba(20, 20, 35, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 16px;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      cursor: pointer;
+      z-index: 201;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .fullscreen-btn:hover {
+      background: rgba(30, 30, 50, 0.9);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+    
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  
+  <button class="fullscreen-btn" id="fullscreenBtn" title="Toggle fullscreen">⛶</button>
+  <button class="panel-toggle" id="panelToggle">⚙</button>
+  
+  <div class="control-panel hidden" id="controlPanel">
+    <h3>Structure</h3>
+    <div class="control-row" data-param="numPetals">
+      <button class="lock-btn" title="Lock parameter">🔓</button>
+      <label>numPetals</label>
+      <input type="range" min="3" max="15" step="0.01">
+      <span class="value">5.00</span>
+    </div>
+    <div class="control-row" data-param="flowerSize">
+      <button class="lock-btn" title="Lock parameter">🔓</button>
+      <label>flowerSize</label>
+      <input type="range" min="2" max="12" step="0.1">
+      <span class="value">5.0</span>
+    </div>
+    <div class="control-row" data-param="petalCurve">
+      <button class="lock-btn" title="Lock parameter">🔓</button>
+      <label>petalCurve</label>
+      <input type="range" min="0" max="2" step="0.01">
+      <span class="value">0.50</span>
+    </div>
+    
+    <h3>Wave / Temporal</h3>
+    <div class="control-row" data-param="waveStrength">
+      <button class="lock-btn" title="Lock parameter">🔓</button>
+      <label>waveStrength</label>
+      <input type="range" min="0" max="28" step="0.1">
+      <span class="value">0.40</span>
+    </div>
+    <div class="control-row log-control" data-param="waveSpeed">
+      <button class="lock-btn" title="Lock parameter">🔓</button>
+      <label>waveSpeed</label>
+      <div class="log-buttons">
+        <button class="log-btn magnitude" data-mult="0.1" title="÷10">÷10</button>
+        <button class="log-btn" data-mult="0.5" title="÷2">÷2</button>
+        <span class="log-value-display" id="waveSpeedValue">2.000</span>
+        <button class="log-btn" data-mult="2" title="×2">×2</button>
+        <button class="log-btn magnitude" data-mult="10" title="×10">×10</button>
+      </div>
+    </div>
+    
+    <h3>Motion</h3>
+    <div class="control-row" data-param="rotationSpeed">
+      <button class="lock-btn" title="Lock parameter">🔓</button>
+      <label>rotationSpeed</label>
+      <input type="range" min="0.02" max="0.5" step="0.01">
+      <span class="value">0.10</span>
+    </div>
+    <div class="control-row" data-param="ringRotationBase">
+      <button class="lock-btn" title="Lock parameter">🔓</button>
+      <label>ringRotBase</label>
+      <input type="range" min="0" max="0.12" step="0.005">
+      <span class="value">0.05</span>
+    </div>
+    <div class="control-row" data-param="ringRotationDelta">
+      <button class="lock-btn" title="Lock parameter">🔓</button>
+      <label>ringRotΔ</label>
+      <input type="range" min="-0.08" max="0.12" step="0.005">
+      <span class="value">0.03</span>
+    </div>
+    
+    <h3>Particles</h3>
+    <div class="control-row" data-param="particleCount">
+      <button class="lock-btn" title="Lock parameter">🔓</button>
+      <label>particleCount</label>
+      <input type="range" min="1500" max="3500" step="50">
+      <span class="value">2500</span>
+    </div>
+    <div class="control-row" data-param="pointSize">
+      <button class="lock-btn" title="Lock parameter">🔓</button>
+      <label>pointSize</label>
+      <input type="range" min="0.05" max="0.09" step="0.002">
+      <span class="value">0.07</span>
+    </div>
+    
+    <h3>Phase Control</h3>
+    <div class="control-row" data-param="phaseDuration">
+      <label>phaseCycles</label>
+      <input type="range" min="5" max="60" step="1" id="phaseDurationSlider">
+      <span class="value" id="phaseDurationValue">20</span>
+    </div>
+    <div class="control-row" data-param="sharedBlend">
+      <label>sharedBlend</label>
+      <input type="range" min="0" max="1" step="0.01" id="sharedBlendSlider">
+      <span class="value" id="sharedBlendValue">0.00</span>
+      <button class="lock-btn" id="blendLockBtn" data-testid="button-blend-lock">&#128275;</button>
+    </div>
+    <div class="control-row">
+      <label>phase</label>
+      <span class="value" id="phaseIndicator" style="flex: 1; text-align: center; color: #22d3ee;">UNIQUE</span>
+    </div>
+    <div class="control-row">
+      <label>cycleProgress</label>
+      <div style="flex: 1; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
+        <div id="cycleProgressBar" style="height: 100%; width: 0%; background: #22d3ee; transition: width 0.1s;"></div>
+      </div>
+      <span class="value" id="cycleProgressValue">0/20</span>
+    </div>
+  </div>
+  
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <script>
+    // WAVE_SPEED is now a parameter (waveSpeed)
+    // waveFrequency renamed to spatialWaveFreq (controls spatial density of waves)
+    
+    // ============================================
+    // COHERENCE DETECTION SYSTEM
+    // ============================================
+    
+    const PHI = (1 + Math.sqrt(5)) / 2;
+    const PHI_2 = PHI * PHI;
+    const PHI_3 = PHI * PHI * PHI;
+    const PHI_4 = PHI * PHI * PHI * PHI;
+    const PHI_5 = PHI * PHI * PHI * PHI * PHI;
+    const PI = Math.PI;
+    
+    const TOLERANCE = 0.012;
+    const TIGHT_TOLERANCE = 0.005;
+    const PSEUDO_TOLERANCE = 0.003;
+    
+    // Pseudo-coherence ladders
+    const LADDER_A = [144, 216, 324, 486];
+    const LADDER_B = [176, 264, 396];
+    const LADDER_PHI = [233, 350, 524];
+    const LADDER_F13 = [155, 233, 350];
+    const LADDER_F14 = [251, 377, 566];
+    
+    // Tour mode settings - matched to original Radial Petal Modulation feel
+    const TOUR_CRUISE_SPEED = 0.004;      // Base cruising speed
+    const TOUR_PEAK_SPEED = 0.000001;     // Nearly frozen at coherence peaks
+    const TOUR_MAX_STEP = 0.015;          // Cap on acceleration
+    const MAX_SPEED_INCREASE_RATE = 2.0;  // Can double speed per frame when accelerating
+    let lastTourSpeed = TOUR_CRUISE_SPEED;
+    
+    // Petal range for tour
+    const MIN_PETALS = 3.0;
+    const MAX_PETALS = 15.0;
+    
+    function detectPseudoCoherence(x) {
+      const numPetalsInt = Math.floor(x);
+      const offset = x - numPetalsInt;
+      
+      if (offset < 0.005 || offset > 0.25) return null;
+      
+      const isSolidZone = numPetalsInt >= 3 && numPetalsInt <= 6;
+      const isDisruptionZone = numPetalsInt >= 7 && numPetalsInt <= 8;
+      
+      if (!isSolidZone && !isDisruptionZone) return null;
+      
+      let ladders, minK;
+      
+      if (isSolidZone) {
+        ladders = [...LADDER_A, ...LADDER_B, ...LADDER_PHI];
+        minK = 36 * numPetalsInt;
+      } else {
+        ladders = [...LADDER_F13, ...LADDER_F14];
+        minK = 30 * numPetalsInt;
+      }
+      
+      ladders = ladders.filter(k => k >= minK);
+      
+      for (const k of ladders) {
+        const expectedOffset = PHI * numPetalsInt / k;
+        const distance = Math.abs(offset - expectedOffset);
+        
+        if (distance < PSEUDO_TOLERANCE) {
+          let pseudoType = 'pseudo-spiral';
+          let formula = `k=${k}`;
+          
+          if (LADDER_A.includes(k)) {
+            pseudoType = k === 216 ? 'pseudo-half-disc' : 'pseudo-petals';
+            formula = `F₁₂×${(k/144).toFixed(2)}`;
+          } else if (LADDER_B.includes(k)) {
+            pseudoType = 'pseudo-petals';
+            formula = `F₁₂×${(k/144).toFixed(2)}`;
+          } else if (LADDER_PHI.includes(k)) {
+            pseudoType = (k === 233 || k === 350) ? 'pseudo-conch' : 'pseudo-spiral';
+            formula = `F₁₃×${(k/233).toFixed(2)}`;
+          } else if (LADDER_F13.includes(k)) {
+            pseudoType = 'pseudo-spiral';
+            formula = `F₁₃×${(k/233).toFixed(2)}`;
+          } else if (LADDER_F14.includes(k)) {
+            pseudoType = k === 251 ? 'pseudo-half-disc' : 'pseudo-petals';
+            formula = `F₁₄×${(k/377).toFixed(2)}`;
+          }
+          
+          return {
+            type: 'pseudo',
+            label: pseudoType.replace('pseudo-', 'Pseudo '),
+            formula: `${numPetalsInt}+φ×${numPetalsInt}/${k}`
+          };
+        }
+      }
+      return null;
+    }
+    
+    function detectCoherence(x) {
+      let bestMatch = null;
+      let bestDistance = Infinity;
+      
+      // Integer petals
+      const nearestInt = Math.round(x);
+      const intDistance = Math.abs(x - nearestInt);
+      if (intDistance < TOLERANCE && nearestInt >= 3 && nearestInt <= 15) {
+        if (intDistance < bestDistance) {
+          bestDistance = intDistance;
+          bestMatch = { type: 'petals', label: `${nearestInt} petals`, formula: `${nearestInt}` };
+        }
+      }
+      
+      // nφ multiples
+      const nPhi = x / PHI;
+      const nearestNPhi = Math.round(nPhi);
+      const nPhiDistance = Math.abs(x - nearestNPhi * PHI);
+      if (nPhiDistance < TOLERANCE && nearestNPhi >= 2 && nearestNPhi <= 9) {
+        if (nPhiDistance < bestDistance) {
+          bestDistance = nPhiDistance;
+          bestMatch = { type: 'petals', label: `${nearestNPhi} petals`, formula: `${nearestNPhi}φ` };
+        }
+      }
+      
+      // n/φ divisions
+      const nOverPhi = x * PHI;
+      const nearestNOverPhi = Math.round(nOverPhi);
+      const nOverPhiDistance = Math.abs(x - nearestNOverPhi / PHI);
+      if (nOverPhiDistance < TOLERANCE && nearestNOverPhi >= 5 && nearestNOverPhi <= 24) {
+        if (nOverPhiDistance < bestDistance) {
+          bestDistance = nOverPhiDistance;
+          bestMatch = { type: 'petals', label: `${nearestNOverPhi * 2} petals`, formula: `${nearestNOverPhi}/φ` };
+        }
+      }
+      
+      // nφ² all-to-center
+      const nPhi2 = x / PHI_2;
+      const nearestNPhi2 = Math.round(nPhi2);
+      const nPhi2Distance = Math.abs(x - nearestNPhi2 * PHI_2);
+      if (nPhi2Distance < TIGHT_TOLERANCE && nearestNPhi2 >= 1 && nearestNPhi2 <= 6) {
+        if (nPhi2Distance < bestDistance) {
+          bestDistance = nPhi2Distance;
+          bestMatch = { type: 'all-to-center', label: 'All-to-center', formula: `${nearestNPhi2}φ²` };
+        }
+      }
+      
+      // φ powers - half-disc
+      const phiPowers = [
+        { value: PHI_3, label: 'φ³' },
+        { value: PHI_4, label: 'φ⁴' },
+        { value: PHI_5, label: 'φ⁵' }
+      ];
+      for (const pp of phiPowers) {
+        const ppDistance = Math.abs(x - pp.value);
+        if (ppDistance < TIGHT_TOLERANCE && ppDistance < bestDistance) {
+          bestDistance = ppDistance;
+          bestMatch = { type: 'half-disc', label: 'Half-disc', formula: pp.label };
+        }
+      }
+      
+      // (n/2)φ² + 0.5 half-disc variants
+      const halfPhi2 = PHI_2 / 2;
+      const nHalfPhi2PlusHalf = (x - 0.5) / halfPhi2;
+      const nearestNHalfPhi2 = Math.round(nHalfPhi2PlusHalf);
+      const nHalfPhi2Distance = Math.abs(x - (nearestNHalfPhi2 * halfPhi2 + 0.5));
+      if (nHalfPhi2Distance < TIGHT_TOLERANCE && nearestNHalfPhi2 >= 2 && nearestNHalfPhi2 <= 11) {
+        if (nHalfPhi2Distance < bestDistance) {
+          bestDistance = nHalfPhi2Distance;
+          const label = nearestNHalfPhi2 % 2 === 0 ? `${nearestNHalfPhi2 / 2}φ² + ½` : `${nearestNHalfPhi2}/2·φ² + ½`;
+          bestMatch = { type: 'half-disc', label: 'Half-disc', formula: label };
+        }
+      }
+      
+      // (n + 0.5)φ² spirals
+      const nPlusHalfPhi2 = x / PHI_2;
+      const fractionalPart = nPlusHalfPhi2 - Math.floor(nPlusHalfPhi2);
+      if (Math.abs(fractionalPart - 0.5) < 0.005) {
+        const nearestHalfInt = Math.floor(nPlusHalfPhi2) + 0.5;
+        const halfIntPhi2Distance = Math.abs(x - nearestHalfInt * PHI_2);
+        if (halfIntPhi2Distance < TIGHT_TOLERANCE && nearestHalfInt >= 1.5 && nearestHalfInt <= 5.5) {
+          if (halfIntPhi2Distance < bestDistance) {
+            bestDistance = halfIntPhi2Distance;
+            bestMatch = { type: 'spiral', label: 'Spirals', formula: `${nearestHalfInt - 0.5}½φ²` };
+          }
+        }
+      }
+      
+      // Conch shells near φ³ or φ⁴
+      const phi3Distance = Math.abs(x - PHI_3);
+      const phi4Distance = Math.abs(x - PHI_4);
+      if (phi3Distance < TOLERANCE && phi3Distance >= TIGHT_TOLERANCE && phi3Distance < bestDistance) {
+        bestDistance = phi3Distance;
+        bestMatch = { type: 'conch', label: `Conch (${x < PHI_3 ? 'point-cloud' : 'spiral'})`, formula: `φ³ ${x < PHI_3 ? '-' : '+'} ${phi3Distance.toFixed(4)}` };
+      }
+      if (phi4Distance < TOLERANCE && phi4Distance >= TIGHT_TOLERANCE && phi4Distance < bestDistance) {
+        bestDistance = phi4Distance;
+        bestMatch = { type: 'conch', label: `Conch (${x < PHI_4 ? 'point-cloud' : 'spiral'})`, formula: `φ⁴ ${x < PHI_4 ? '-' : '+'} ${phi4Distance.toFixed(4)}` };
+      }
+      
+      // π-based coherences
+      const piQuarter = PI / 4;
+      const nearestPiN = Math.round(x / piQuarter);
+      const piDistance = Math.abs(x - nearestPiN * piQuarter);
+      if (piDistance < TOLERANCE && nearestPiN >= 4 && nearestPiN <= 19) {
+        if (piDistance < bestDistance) {
+          bestDistance = piDistance;
+          let piLabel, spiralType;
+          if (nearestPiN % 4 === 0) {
+            piLabel = `${nearestPiN / 4}π`;
+            spiralType = 'Dual-spokes';
+          } else if (nearestPiN % 2 === 0) {
+            piLabel = `${nearestPiN / 2}π/2`;
+            spiralType = 'Dual-spokes';
+          } else {
+            piLabel = `${nearestPiN}π/4`;
+            spiralType = 'Spiral + dark core';
+          }
+          bestMatch = { type: 'pi-coherent', label: spiralType, formula: piLabel };
+        }
+      }
+      
+      return bestMatch || { type: 'unclear', label: 'Unclear', formula: '' };
+    }
+    
+    function getAllCoherenceCenters(pseudoMode) {
+      const centers = [];
+      const add = (value, radius = TOLERANCE) => {
+        if (value >= MIN_PETALS && value <= MAX_PETALS) {
+          centers.push({ value, radius });
+        }
+      };
+      
+      if (!pseudoMode) {
+        // Integers
+        for (let n = 3; n <= 15; n++) add(n, TOLERANCE);
+        // nφ multiples
+        for (let n = 2; n <= 9; n++) add(n * PHI, TOLERANCE);
+        // n/φ divisions
+        for (let n = 5; n <= 24; n++) add(n / PHI, TOLERANCE);
+        // nφ² all-to-center
+        for (let n = 1; n <= 6; n++) add(n * PHI_2, TIGHT_TOLERANCE);
+        // φ powers
+        add(PHI_3, TIGHT_TOLERANCE);
+        add(PHI_4, TIGHT_TOLERANCE);
+        add(PHI_5, TIGHT_TOLERANCE);
+        // (n/2)φ² + 0.5 half-disc
+        const halfPhi2 = PHI_2 / 2;
+        for (let n = 2; n <= 11; n++) add(n * halfPhi2 + 0.5, TIGHT_TOLERANCE);
+        // (n + 0.5)φ² spirals
+        for (let n = 1; n <= 5; n++) add((n + 0.5) * PHI_2, TIGHT_TOLERANCE);
+        // π-based
+        const piQuarter = PI / 4;
+        for (let n = 4; n <= 19; n++) add(n * piQuarter, TOLERANCE);
+      } else {
+        // Pseudo-coherences only
+        for (let base = 3; base <= 8; base++) {
+          const isSolid = base <= 6;
+          const ladders = isSolid ? [...LADDER_A, ...LADDER_B, ...LADDER_PHI] : [...LADDER_F13, ...LADDER_F14];
+          const minK = isSolid ? 36 * base : 30 * base;
+          for (const k of ladders) {
+            if (k >= minK) {
+              const offset = PHI * base / k;
+              add(base + offset, PSEUDO_TOLERANCE);
+            }
+          }
+        }
+      }
+      return centers;
+    }
+    
+    function coherenceStrength(x, pseudoMode) {
+      const centers = getAllCoherenceCenters(pseudoMode);
+      let minNormalizedDist = Infinity;
+      for (const c of centers) {
+        const dist = Math.abs(x - c.value);
+        const normalized = dist / c.radius;
+        minNormalizedDist = Math.min(minNormalizedDist, normalized);
+      }
+      return Math.exp(-minNormalizedDist);
+    }
+    
+    function getTourSpeed(x, pseudoMode) {
+      const strength = coherenceStrength(x, pseudoMode);
+      const logPeak = Math.log(TOUR_PEAK_SPEED);
+      const logCruise = Math.log(TOUR_CRUISE_SPEED);
+      const logSpeed = logCruise + (logPeak - logCruise) * strength;
+      let targetSpeed = Math.min(Math.exp(logSpeed), TOUR_MAX_STEP);
+      
+      if (targetSpeed > lastTourSpeed && lastTourSpeed < TOUR_CRUISE_SPEED) {
+        targetSpeed = Math.min(lastTourSpeed * MAX_SPEED_INCREASE_RATE, TOUR_CRUISE_SPEED);
+      }
+      
+      lastTourSpeed = targetSpeed;
+      return targetSpeed;
+    }
+    
+    // ============================================
+    // ATTRACTOR SYSTEM
+    // ============================================
+    
+    function pick(arr) {
+      return arr[Math.floor(Math.random() * arr.length)];
+    }
+    
+    function randInRange(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    const dimensionValues = {
+      density_class: {
+        'sparse':   { particleCount: [1500, 2000], pointSize: [0.07, 0.09] },
+        'medium':   { particleCount: [2200, 2800], pointSize: [0.06, 0.08] },
+        'dense':    { particleCount: [3000, 3500], pointSize: [0.05, 0.07] }
+      },
+      scale_class: {
+        'intimate':  { flowerSize: [2.0, 3.5] },
+        'medium':    { flowerSize: [4.5, 7.0] },
+        'expansive': { flowerSize: [9.0, 12.0] }
+      },
+      petal_class: {
+        'trilateral':  { numPetals: [3.0, 3.5] },
+        'radial':      { numPetals: [6.0, 8.0] },
+        'dissolved':   { numPetals: [12.0, 15.0] }
+      },
+      curve_class: {
+        'flat':     { petalCurve: [0.0, 0.3] },
+        'cupped':   { petalCurve: [0.5, 1.0] },
+        'conical':  { petalCurve: [1.4, 2.0] }
+      },
+      rotation_class: {
+        'still':    { rotationSpeed: [0.02, 0.06] },
+        'gentle':   { rotationSpeed: [0.08, 0.15] },
+        'spinning': { rotationSpeed: [0.35, 0.50] }
+      },
+      wave_class: {
+        'calm':      { waveStrength: [0.08, 0.5], waveSpeed: [0.3, 0.6], temporalOffset: [0.5, 1.2] },
+        'breathing': { waveStrength: [0.5, 2.0], waveSpeed: [0.4, 0.8], temporalOffset: [0.6, 1.4] },
+        'turbulent': { waveStrength: [2.0, 6.0], waveSpeed: [0.3, 0.7], temporalOffset: [0.8, 1.67] },
+        'extreme':   { waveStrength: [6.0, 14.0], waveSpeed: [0.2, 0.5], temporalOffset: [0.3, 1.5] },
+        'massive':   { waveStrength: [14.0, 28.0], waveSpeed: [0.2, 0.6], temporalOffset: [0.1, 1.0] },
+        'slow':      { waveStrength: [1.0, 4.0], waveSpeed: [0.05, 0.2], temporalOffset: [0.5, 1.2] },
+        'glacial':   { waveStrength: [0.5, 2.0], waveSpeed: [0.01, 0.1], temporalOffset: [0.5, 1.2] }
+      },
+      ring_rotation_class: {
+        'unified':      { ringRotationBase: [0.0, 0.02], ringRotationDelta: [0.0, 0.01] },
+        'cascading':    { ringRotationBase: [0.03, 0.08], ringRotationDelta: [0.02, 0.05] },
+        'alternating':  { ringRotationBase: [0.05, 0.12], ringRotationDelta: [-0.08, -0.04] },
+        'divergent':    { ringRotationBase: [0.02, 0.06], ringRotationDelta: [0.06, 0.12] }
+      },
+      layer_mode_class: {
+        'spatial':    { temporalLayerMode: [0.0, 0.1], temporalLayerDelay: [0.05, 0.1] },
+        'hybrid':     { temporalLayerMode: [0.3, 0.6], temporalLayerDelay: [0.12, 0.2] },
+        'temporal':   { temporalLayerMode: [0.85, 1.0], temporalLayerDelay: [0.15, 0.25] },
+        'wake':       { temporalLayerMode: [0.95, 1.0], temporalLayerDelay: [0.25, 0.4] },
+        'ripple':     { temporalLayerMode: [0.7, 0.9], temporalLayerDelay: [0.08, 0.12] }
+      },
+      color_scheme: {
+        'ice':        { centerH: [0.58, 0.62], centerS: [0.4, 0.6], centerL: [0.55, 0.70],
+                        innerH: [0.60, 0.65], innerS: [0.8, 1.0], innerL: [0.45, 0.55],
+                        outerH: [0.70, 0.78], outerS: [0.2, 0.4], outerL: [0.85, 0.95] },
+        'ember':      { centerH: [0.04, 0.08], centerS: [0.7, 0.9], centerL: [0.50, 0.60],
+                        innerH: [0.08, 0.12], innerS: [0.9, 1.0], innerL: [0.55, 0.65],
+                        outerH: [0.0, 0.02], outerS: [0.8, 1.0], outerL: [0.25, 0.35] },
+        'neon':       { centerH: [0.35, 0.42], centerS: [0.7, 0.9], centerL: [0.45, 0.55],
+                        innerH: [0.70, 0.75], innerS: [0.0, 0.2], innerL: [0.08, 0.15],
+                        outerH: [0.90, 0.95], outerS: [0.8, 1.0], outerL: [0.50, 0.60] },
+        'orchid':     { centerH: [0.75, 0.80], centerS: [0.4, 0.6], centerL: [0.55, 0.65],
+                        innerH: [0.82, 0.88], innerS: [0.3, 0.5], innerL: [0.90, 0.98],
+                        outerH: [0.83, 0.88], outerS: [0.5, 0.7], outerL: [0.60, 0.70] },
+        'rgb':        { centerH: [0.0, 0.02], centerS: [0.9, 1.0], centerL: [0.50, 0.55],
+                        innerH: [0.33, 0.35], innerS: [0.9, 1.0], innerL: [0.45, 0.55],
+                        outerH: [0.66, 0.68], outerS: [0.9, 1.0], outerL: [0.45, 0.55] },
+        'cosmic':     { centerH: [0.0, 1.0], centerS: [0.0, 0.1], centerL: [0.90, 1.0],
+                        innerH: [0.50, 0.52], innerS: [0.8, 1.0], innerL: [0.50, 0.55],
+                        outerH: [0.68, 0.72], outerS: [0.3, 0.5], outerL: [0.10, 0.20] },
+        'sunset':     { centerH: [0.12, 0.15], centerS: [0.9, 1.0], centerL: [0.60, 0.70],
+                        innerH: [0.05, 0.08], innerS: [0.85, 1.0], innerL: [0.55, 0.60],
+                        outerH: [0.85, 0.92], outerS: [0.6, 0.8], outerL: [0.35, 0.45] },
+        'aurora':     { centerH: [0.45, 0.50], centerS: [0.7, 0.9], centerL: [0.60, 0.70],
+                        innerH: [0.30, 0.38], innerS: [0.8, 1.0], innerL: [0.50, 0.60],
+                        outerH: [0.75, 0.82], outerS: [0.6, 0.8], outerL: [0.45, 0.55] }
+      },
+      vignette_class: {
+        'focused': { bloomIntensity: [0.8, 1.2], vignetteStrength: [0.6, 0.8] },
+        'open':    { bloomIntensity: [0.4, 0.7], vignetteStrength: [0.2, 0.4] },
+        'diffuse': { bloomIntensity: [1.0, 1.5], vignetteStrength: [0.0, 0.2] }
+      }
+    };
+
+    function checkHardConstraints(a) {
+      if (a.curve_class === 'conical' && a.density_class === 'dense') return false;
+      if (a.scale_class === 'expansive' && a.rotation_class === 'spinning' && a.wave_class === 'calm') return false;
+      if (a.color_scheme === 'ember' && a.petal_class === 'dissolved') return false;
+      if (a.ring_rotation_class === 'divergent' && a.rotation_class === 'still') return false;
+      if ((a.wave_class === 'extreme' || a.wave_class === 'massive') && a.layer_mode_class === 'spatial') return false;
+      return true;
+    }
+
+    function scoreSoftConstraints(a) {
+      let score = 1.0;
+      if (a.color_scheme === 'ice') { if (a.curve_class !== 'flat') score *= 0.6; if (a.scale_class !== 'expansive') score *= 0.7; }
+      if (a.color_scheme === 'ember') { if (a.petal_class !== 'trilateral') score *= 0.65; if (a.curve_class !== 'cupped') score *= 0.7; if (a.layer_mode_class === 'temporal') score *= 1.2; }
+      if (a.color_scheme === 'neon') { if (a.density_class !== 'sparse') score *= 0.6; if (a.scale_class !== 'intimate') score *= 0.65; }
+      if (a.color_scheme === 'orchid') { if (a.curve_class !== 'conical') score *= 0.6; if (a.rotation_class !== 'spinning') score *= 0.65; }
+      if (a.color_scheme === 'rgb') { if (a.scale_class !== 'expansive') score *= 0.6; }
+      if (a.color_scheme === 'cosmic') { if (a.petal_class !== 'dissolved') score *= 0.5; }
+      if (a.color_scheme === 'sunset') { if (a.layer_mode_class === 'wake') score *= 1.3; if (a.wave_class === 'extreme') score *= 1.2; }
+      if (a.color_scheme === 'aurora') { if (a.layer_mode_class === 'temporal' || a.layer_mode_class === 'ripple') score *= 1.25; if (a.wave_class === 'turbulent') score *= 1.2; if (a.scale_class === 'expansive') score *= 1.1; }
+      if (a.rotation_class === 'spinning') { if (a.wave_class === 'calm') score *= 0.5; if (a.ring_rotation_class === 'unified') score *= 0.7; }
+      if (a.scale_class === 'intimate') { if (a.density_class === 'dense') score *= 0.5; if (a.ring_rotation_class === 'alternating') score *= 1.2; }
+      if (a.scale_class === 'expansive' && a.ring_rotation_class === 'divergent') score *= 1.15;
+      if (a.layer_mode_class === 'temporal') { if (a.wave_class === 'turbulent') score *= 1.2; if (a.wave_class === 'extreme') score *= 1.3; }
+      if (a.layer_mode_class === 'wake') { if (a.wave_class === 'extreme') score *= 1.35; if (a.rotation_class === 'still' || a.rotation_class === 'gentle') score *= 1.15; }
+      if (a.layer_mode_class === 'ripple') { if (a.wave_class === 'breathing' || a.wave_class === 'turbulent') score *= 1.2; }
+      if (a.layer_mode_class === 'spatial' && a.curve_class === 'conical') score *= 1.1;
+      if (a.layer_mode_class === 'hybrid') score *= 1.05;
+      return Math.min(score, 1.0);
+    }
+
+    function hslToRgb(h, s, l) {
+      h = ((h % 1) + 1) % 1; s = Math.max(0, Math.min(1, s)); l = Math.max(0, Math.min(1, l));
+      let r, g, b;
+      if (s === 0) { r = g = b = l; }
+      else {
+        const hue2rgb = (p, q, t) => { if (t < 0) t += 1; if (t > 1) t -= 1; if (t < 1/6) return p + (q - p) * 6 * t; if (t < 1/2) return q; if (t < 2/3) return p + (q - p) * (2/3 - t) * 6; return p; };
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s; const p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1/3); g = hue2rgb(p, q, h); b = hue2rgb(p, q, h - 1/3);
+      }
+      return [r, g, b];
+    }
+
+    function resolveToParameters(a) {
+      const params = { _grammar: a };
+      for (const [dimension, className] of Object.entries(a)) {
+        const mapping = dimensionValues[dimension]?.[className];
+        if (mapping) { for (const [param, value] of Object.entries(mapping)) { params[param] = Array.isArray(value) ? randInRange(value[0], value[1]) : value; } }
+      }
+      params.centerColor = hslToRgb(params.centerH, params.centerS, params.centerL);
+      params.innerColor = hslToRgb(params.innerH, params.innerS, params.innerL);
+      params.outerColor = hslToRgb(params.outerH, params.outerS, params.outerL);
+      if (a.layer_class === 'deep' && params.layerSeparation < 0.1) params.rotationSpeed *= 1.3;
+      if (a.curve_class === 'conical') params.waveStrength *= 0.7;
+      params.goldenCenterBoost = a.color_scheme === 'ember' ? 0.8 : 0.5;
+      return params;
+    }
+
+    function generateAttractor(maxAttempts = 100) {
+      for (let i = 0; i < maxAttempts; i++) {
+        const a = {
+          density_class: pick(['sparse', 'medium', 'dense']),
+          scale_class: pick(['intimate', 'medium', 'expansive']),
+          petal_class: pick(['trilateral', 'radial', 'dissolved']),
+          curve_class: pick(['flat', 'cupped', 'conical']),
+          rotation_class: pick(['still', 'gentle', 'spinning']),
+          wave_class: pick(['calm', 'breathing', 'turbulent', 'extreme', 'massive', 'slow', 'glacial']),
+          ring_rotation_class: pick(['unified', 'cascading', 'alternating', 'divergent']),
+          layer_mode_class: pick(['spatial', 'hybrid', 'temporal', 'wake', 'ripple']),
+          color_scheme: pick(['ice', 'ember', 'neon', 'orchid', 'rgb', 'cosmic', 'sunset', 'aurora']),
+          vignette_class: pick(['focused', 'open', 'diffuse'])
+        };
+        if (!checkHardConstraints(a)) continue;
+        if (Math.random() < scoreSoftConstraints(a)) return resolveToParameters(a);
+      }
+      return resolveToParameters({ density_class: 'medium', scale_class: 'medium', petal_class: 'radial', curve_class: 'cupped', rotation_class: 'gentle', wave_class: 'turbulent', ring_rotation_class: 'cascading', layer_mode_class: 'temporal', color_scheme: 'sunset', vignette_class: 'open' });
+    }
+
+    let attractorPool = [];
+    const POOL_SIZE = 8;
+    
+    // Special attractor based on screenshot: trilateral spinning temporal with high ring rotation
+    const screenshotAttractor = {
+      numPetals: 3,
+      flowerSize: 11,
+      petalCurve: 0.15,
+      waveStrength: 1.2,
+      waveSpeed: 0.5,
+      temporalOffset: 1.0,
+      temporalLayerMode: 0.95,
+      temporalLayerDelay: 0.1,
+      rotationSpeed: 0.45,
+      ringRotationBase: 0.10,
+      ringRotationDelta: 0.10,
+      particleCount: 2000,
+      pointSize: 0.055,
+      goldenCenterBoost: 0.75,
+      centerColor: [0.85, 0.65, 0.3],
+      innerColor: [0.6, 0.4, 0.2],
+      outerColor: [0.3, 0.25, 0.4]
+    };
+    
+    // Strong attractor: dramatic waves with slow speed
+    const slowWaveAttractor = {
+      numPetals: 5,
+      flowerSize: 12,
+      petalCurve: 2.0,
+      waveStrength: 20.2,
+      waveSpeed: 0.111,
+      temporalOffset: 0.05,
+      temporalLayerMode: 0.8,
+      temporalLayerDelay: 0.2,
+      rotationSpeed: 0.15,
+      ringRotationBase: 0.02,
+      ringRotationDelta: 0.02,
+      particleCount: 3000,
+      pointSize: 0.07,
+      goldenCenterBoost: 0.6,
+      centerColor: [0.9, 0.8, 0.5],
+      innerColor: [0.3, 0.5, 0.8],
+      outerColor: [0.1, 0.2, 0.5]
+    };
+    
+    function refreshAttractorPool() { 
+      attractorPool = []; 
+      // Always include the strong attractors - slowWaveAttractor appears multiple times for higher weight
+      attractorPool.push(slowWaveAttractor);
+      attractorPool.push(slowWaveAttractor);
+      attractorPool.push(slowWaveAttractor);
+      attractorPool.push(screenshotAttractor);
+      for (let i = 4; i < POOL_SIZE; i++) attractorPool.push(generateAttractor()); 
+    }
+    refreshAttractorPool();
+
+    // ============================================
+    // PARAMETER LAYER SYSTEM
+    // ============================================
+
+    const paramDefs = {
+      particleCount: { min: 1500, max: 3500, layer: 'glacial' },
+      numPetals: { min: 3.0, max: 15.0, layer: 'glacial' },
+      flowerSize: { min: 2.0, max: 12.0, layer: 'slow' },
+      petalCurve: { min: 0.0, max: 2.0, layer: 'slow' },
+      temporalLayerMode: { min: 0.0, max: 1.0, layer: 'slow' },
+      temporalLayerDelay: { min: 0.05, max: 0.4, layer: 'slow' },
+      rotationSpeed: { min: 0.02, max: 0.50, layer: 'medium' },
+      waveStrength: { min: 0.0, max: 28.0, layer: 'medium' },
+      waveSpeed: { min: 0.01, max: 1.0, layer: 'medium' },  // Capped at 1.0
+      temporalOffset: { min: 0.001, max: 1.67, layer: 'medium' },  // Capped at 1.67
+      pointSize: { min: 0.05, max: 0.09, layer: 'medium' },
+      ringRotationBase: { min: 0.0, max: 0.12, layer: 'medium' },
+      ringRotationDelta: { min: -0.08, max: 0.12, layer: 'medium' },
+      bloomIntensity: { min: 0.4, max: 1.5, layer: 'fast' },
+      vignetteStrength: { min: 0.0, max: 0.8, layer: 'fast' },
+      centerR: { min: 0, max: 1, layer: 'drift' }, centerG: { min: 0, max: 1, layer: 'drift' }, centerB: { min: 0, max: 1, layer: 'drift' },
+      innerR: { min: 0, max: 1, layer: 'drift' }, innerG: { min: 0, max: 1, layer: 'drift' }, innerB: { min: 0, max: 1, layer: 'drift' },
+      outerR: { min: 0, max: 1, layer: 'drift' }, outerG: { min: 0, max: 1, layer: 'drift' }, outerB: { min: 0, max: 1, layer: 'drift' },
+      goldenCenterBoost: { min: 0.3, max: 0.9, layer: 'drift' }
+    };
+
+    const layerConfig = {
+      glacial: { baseDuration: 45, variance: 20 },
+      slow: { baseDuration: 30, variance: 12 },
+      medium: { baseDuration: 18, variance: 8 },
+      fast: { baseDuration: 10, variance: 5 },
+      drift: { baseDuration: 25, variance: 10 }
+    };
+
+    const layers = {};
+    
+    function initializeLayers() {
+      const initial = generateAttractor();
+      const initialState = {
+        particleCount: initial.particleCount || 2500, numPetals: initial.numPetals || 7,
+        flowerSize: initial.flowerSize || 5.3, petalCurve: initial.petalCurve || 0.6,
+        temporalLayerMode: initial.temporalLayerMode || 0.5, temporalLayerDelay: initial.temporalLayerDelay || 0.15,
+        rotationSpeed: initial.rotationSpeed || 0.05, waveStrength: initial.waveStrength || 0.4, 
+        waveSpeed: initial.waveSpeed || 0.5, temporalOffset: initial.temporalOffset || 1.0, 
+        pointSize: initial.pointSize || 0.07,
+        ringRotationBase: initial.ringRotationBase || 0.05, ringRotationDelta: initial.ringRotationDelta || 0.03,
+        bloomIntensity: initial.bloomIntensity || 0.8, vignetteStrength: initial.vignetteStrength || 0.3,
+        centerR: initial.centerColor?.[0] || 0.37, centerG: initial.centerColor?.[1] || 0.33, centerB: initial.centerColor?.[2] || 0.90,
+        innerR: initial.innerColor?.[0] || 0.04, innerG: initial.innerColor?.[1] || 0.12, innerB: initial.innerColor?.[2] || 0.71,
+        outerR: initial.outerColor?.[0] || 0.83, outerG: initial.outerColor?.[1] || 0.20, outerB: initial.outerColor?.[2] || 0.06,
+        goldenCenterBoost: initial.goldenCenterBoost || 0.5
+      };
+      for (const [layerName, config] of Object.entries(layerConfig)) {
+        const layerParams = Object.entries(paramDefs).filter(([_, def]) => def.layer === layerName).map(([name]) => name);
+        layers[layerName] = { params: layerParams, current: {}, next: {}, momentum: {}, progress: Math.random() * 0.3, duration: config.baseDuration + (Math.random() - 0.5) * config.variance, generation: 0 };
+        for (const param of layerParams) { layers[layerName].current[param] = initialState[param]; layers[layerName].momentum[param] = (Math.random() - 0.5) * 0.1; }
+        generateNextState(layerName);
+      }
+    }
+    
+    function generateNextState(layerName) {
+      const layer = layers[layerName];
+      const attractor = Math.random() < 0.4 ? pick(attractorPool) : null;
+      for (const param of layer.params) {
+        const def = paramDefs[param]; const range = def.max - def.min;
+        let m = (layer.momentum[param] || 0) * 0.7;
+        let impulse = (Math.random() - 0.5) * 0.3;
+        if (attractor) {
+          let attractorVal = attractor[param];
+          if (param === 'centerR') attractorVal = attractor.centerColor?.[0];
+          else if (param === 'centerG') attractorVal = attractor.centerColor?.[1];
+          else if (param === 'centerB') attractorVal = attractor.centerColor?.[2];
+          else if (param === 'innerR') attractorVal = attractor.innerColor?.[0];
+          else if (param === 'innerG') attractorVal = attractor.innerColor?.[1];
+          else if (param === 'innerB') attractorVal = attractor.innerColor?.[2];
+          else if (param === 'outerR') attractorVal = attractor.outerColor?.[0];
+          else if (param === 'outerG') attractorVal = attractor.outerColor?.[1];
+          else if (param === 'outerB') attractorVal = attractor.outerColor?.[2];
+          if (attractorVal !== undefined && !isNaN(attractorVal)) impulse += ((attractorVal - def.min) / range - (layer.current[param] - def.min) / range) * 0.45;
+        }
+        m = Math.max(-0.4, Math.min(0.4, m + impulse));
+        let nextVal = layer.current[param] + m * range;
+        if (nextVal < def.min) { nextVal = def.min + (def.min - nextVal) * 0.3; m *= -0.5; }
+        if (nextVal > def.max) { nextVal = def.max - (nextVal - def.max) * 0.3; m *= -0.5; }
+        if (def.quantize) nextVal = Math.round(nextVal / def.quantize) * def.quantize;
+        nextVal = Math.max(def.min, Math.min(def.max, nextVal));
+        if (isNaN(nextVal)) nextVal = (def.min + def.max) / 2;
+        layer.next[param] = nextVal; layer.momentum[param] = m;
+      }
+      layer.duration = layerConfig[layerName].baseDuration + (Math.random() - 0.5) * layerConfig[layerName].variance;
+      layer.generation++;
+      if (layer.generation % 15 === 0 && layerName === 'glacial') refreshAttractorPool();
+    }
+    
+    function smoothstep(t) { return t * t * (3 - 2 * t); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    
+    // Rate limiters for wave parameters
+    // waveStrength: max 0.01 per 3 seconds = 0.00333 per second
+    // waveSpeed: max 0.001 per 3 seconds = 0.00033 per second (1/5 of before)
+    const RATE_LIMITS = {
+      waveStrength: 0.01 / 3.0,  // ~0.00333 per second
+      waveSpeed: 0.001 / 3.0     // ~0.00033 per second (reduced to 1/5)
+    };
+    
+    // Pause system - parameters can hold still for a while
+    // Higher chance for rotation params, lower for others
+    const PAUSE_CHANCE = {
+      rotationSpeed: 0.4,      // 40% chance to pause after each cycle
+      ringRotationBase: 0.4,
+      ringRotationDelta: 0.4,
+      waveStrength: 0.25,
+      waveSpeed: 0.25,
+      temporalOffset: 0.2,
+      flowerSize: 0.15,
+      petalCurve: 0.15,
+      pointSize: 0.15,
+      bloomIntensity: 0.1,
+      vignetteStrength: 0.1
+    };
+    
+    const PAUSE_DURATION = {
+      rotationSpeed: { min: 8, max: 20 },      // seconds to hold still
+      ringRotationBase: { min: 8, max: 20 },
+      ringRotationDelta: { min: 8, max: 20 },
+      waveStrength: { min: 5, max: 15 },
+      waveSpeed: { min: 5, max: 15 },
+      temporalOffset: { min: 4, max: 12 },
+      flowerSize: { min: 4, max: 10 },
+      petalCurve: { min: 4, max: 10 },
+      pointSize: { min: 3, max: 8 },
+      bloomIntensity: { min: 2, max: 6 },
+      vignetteStrength: { min: 2, max: 6 }
+    };
+    
+    // Track paused params: { paramName: { remaining, total, heldValue } }
+    const pausedParams = {};
+    const PAUSE_FADE_TIME = 2.0;  // seconds to fade in/out of pause
+    
+    const rateLimitedValues = {
+      waveStrength: null,
+      waveSpeed: null
+    };
+    
+    function applyRateLimits(interpolated, dt) {
+      for (const [param, maxRate] of Object.entries(RATE_LIMITS)) {
+        if (rateLimitedValues[param] === null) {
+          rateLimitedValues[param] = interpolated[param];
+        } else {
+          const target = interpolated[param];
+          const current = rateLimitedValues[param];
+          const maxChange = maxRate * dt;
+          const diff = target - current;
+          const clampedDiff = Math.max(-maxChange, Math.min(maxChange, diff));
+          rateLimitedValues[param] = current + clampedDiff;
+        }
+        interpolated[param] = rateLimitedValues[param];
+      }
+      return interpolated;
+    }
+    
+    function updateLayers(dt, multiplier) {
+      const effectiveDt = dt * multiplier;
+      const interpolated = {};
+      
+      // Update pause timers
+      for (const param in pausedParams) {
+        pausedParams[param].remaining -= effectiveDt;
+        if (pausedParams[param].remaining <= 0) {
+          delete pausedParams[param];
+        }
+      }
+      
+      for (const [layerName, layer] of Object.entries(layers)) {
+        layer.progress += effectiveDt / layer.duration;
+        while (layer.progress >= 1.0) { 
+          layer.progress -= 1.0; 
+          for (const param of layer.params) {
+            layer.current[param] = layer.next[param];
+            
+            // Check if param should enter pause state
+            if (PAUSE_CHANCE[param] && !pausedParams[param]) {
+              if (Math.random() < PAUSE_CHANCE[param]) {
+                const dur = PAUSE_DURATION[param];
+                const totalDur = dur.min + Math.random() * (dur.max - dur.min);
+                pausedParams[param] = { 
+                  remaining: totalDur, 
+                  total: totalDur,
+                  heldValue: layer.current[param]
+                };
+              }
+            }
+          }
+          generateNextState(layerName); 
+        }
+        const t = smoothstep(layer.progress);
+        for (const param of layer.params) {
+          const movingValue = lerp(layer.current[param], layer.next[param], t);
+          
+          if (pausedParams[param]) {
+            const pause = pausedParams[param];
+            const elapsed = pause.total - pause.remaining;
+            
+            // Smooth fade: ease into pause at start, ease out at end
+            let pauseStrength;
+            if (elapsed < PAUSE_FADE_TIME) {
+              // Fading into pause
+              pauseStrength = smoothstep(elapsed / PAUSE_FADE_TIME);
+            } else if (pause.remaining < PAUSE_FADE_TIME) {
+              // Fading out of pause
+              pauseStrength = smoothstep(pause.remaining / PAUSE_FADE_TIME);
+            } else {
+              // Fully paused
+              pauseStrength = 1.0;
+            }
+            
+            interpolated[param] = lerp(movingValue, pause.heldValue, pauseStrength);
+          } else {
+            interpolated[param] = movingValue;
+          }
+        }
+      }
+      // Apply rate limits to wave parameters
+      applyRateLimits(interpolated, effectiveDt);
+      return interpolated;
+    }
+    
+    initializeLayers();
+
+    // ============================================
+    // PER-FLOWER LAYER SYSTEM
+    // ============================================
+    
+    const NUM_FLOWERS_LAYERS = 19; // Must match NUM_FLOWERS
+    const flowerLayers = [];
+    const flowerPausedParams = [];
+    const flowerRateLimitedValues = [];
+    
+    function createFlowerLayerSystem() {
+      for (let f = 0; f < NUM_FLOWERS_LAYERS; f++) {
+        const initial = generateAttractor();
+        const initialState = {
+          particleCount: initial.particleCount || 2500, numPetals: initial.numPetals || 7,
+          flowerSize: initial.flowerSize || 5.3, petalCurve: initial.petalCurve || 0.6,
+          temporalLayerMode: initial.temporalLayerMode || 0.5, temporalLayerDelay: initial.temporalLayerDelay || 0.15,
+          rotationSpeed: initial.rotationSpeed || 0.05, waveStrength: initial.waveStrength || 0.4, 
+          waveSpeed: initial.waveSpeed || 0.5, temporalOffset: initial.temporalOffset || 1.0, 
+          pointSize: initial.pointSize || 0.07,
+          ringRotationBase: initial.ringRotationBase || 0.05, ringRotationDelta: initial.ringRotationDelta || 0.03,
+          bloomIntensity: initial.bloomIntensity || 0.8, vignetteStrength: initial.vignetteStrength || 0.3,
+          centerR: initial.centerColor?.[0] || 0.37, centerG: initial.centerColor?.[1] || 0.33, centerB: initial.centerColor?.[2] || 0.90,
+          innerR: initial.innerColor?.[0] || 0.04, innerG: initial.innerColor?.[1] || 0.12, innerB: initial.innerColor?.[2] || 0.71,
+          outerR: initial.outerColor?.[0] || 0.83, outerG: initial.outerColor?.[1] || 0.20, outerB: initial.outerColor?.[2] || 0.06,
+          goldenCenterBoost: initial.goldenCenterBoost || 0.5
+        };
+        
+        const flowerLayerSet = {};
+        for (const [layerName, config] of Object.entries(layerConfig)) {
+          const layerParams = Object.entries(paramDefs).filter(([_, def]) => def.layer === layerName).map(([name]) => name);
+          flowerLayerSet[layerName] = { 
+            params: layerParams, 
+            current: {}, 
+            next: {}, 
+            momentum: {}, 
+            progress: Math.random() * 0.3, 
+            duration: config.baseDuration + (Math.random() - 0.5) * config.variance, 
+            generation: 0 
+          };
+          for (const param of layerParams) { 
+            flowerLayerSet[layerName].current[param] = initialState[param]; 
+            flowerLayerSet[layerName].momentum[param] = (Math.random() - 0.5) * 0.1; 
+          }
+          generateFlowerNextState(flowerLayerSet, layerName);
+        }
+        
+        flowerLayers.push(flowerLayerSet);
+        flowerPausedParams.push({});
+        flowerRateLimitedValues.push({ waveStrength: null, waveSpeed: null });
+      }
+    }
+    
+    function generateFlowerNextState(flowerLayerSet, layerName, sharedTarget = null) {
+      const layer = flowerLayerSet[layerName];
+      const attractor = sharedTarget ? null : (Math.random() < 0.4 ? pick(attractorPool) : null);
+      for (const param of layer.params) {
+        const def = paramDefs[param]; const range = def.max - def.min;
+        let m = (layer.momentum[param] || 0) * 0.7;
+        let impulse = (Math.random() - 0.5) * 0.3;
+        
+        let targetVal = undefined;
+        // Color params are excluded from shared phase influence
+        const colorParams = ['centerR', 'centerG', 'centerB', 'innerR', 'innerG', 'innerB', 'outerR', 'outerG', 'outerB'];
+        if (sharedTarget && !colorParams.includes(param)) {
+          targetVal = sharedTarget[param];
+        } else if (attractor) {
+          targetVal = attractor[param];
+          if (param === 'centerR') targetVal = attractor.centerColor?.[0];
+          else if (param === 'centerG') targetVal = attractor.centerColor?.[1];
+          else if (param === 'centerB') targetVal = attractor.centerColor?.[2];
+          else if (param === 'innerR') targetVal = attractor.innerColor?.[0];
+          else if (param === 'innerG') targetVal = attractor.innerColor?.[1];
+          else if (param === 'innerB') targetVal = attractor.innerColor?.[2];
+          else if (param === 'outerR') targetVal = attractor.outerColor?.[0];
+          else if (param === 'outerG') targetVal = attractor.outerColor?.[1];
+          else if (param === 'outerB') targetVal = attractor.outerColor?.[2];
+        }
+        if (targetVal !== undefined && !isNaN(targetVal)) {
+          impulse += ((targetVal - def.min) / range - (layer.current[param] - def.min) / range) * 0.45;
+        }
+        
+        m = Math.max(-0.4, Math.min(0.4, m + impulse));
+        let nextVal = layer.current[param] + m * range;
+        if (nextVal < def.min) { nextVal = def.min + (def.min - nextVal) * 0.3; m *= -0.5; }
+        if (nextVal > def.max) { nextVal = def.max - (nextVal - def.max) * 0.3; m *= -0.5; }
+        if (def.quantize) nextVal = Math.round(nextVal / def.quantize) * def.quantize;
+        nextVal = Math.max(def.min, Math.min(def.max, nextVal));
+        if (isNaN(nextVal)) nextVal = (def.min + def.max) / 2;
+        layer.next[param] = nextVal; layer.momentum[param] = m;
+      }
+      layer.duration = layerConfig[layerName].baseDuration + (Math.random() - 0.5) * layerConfig[layerName].variance;
+      layer.generation++;
+    }
+    
+    function updateFlowerLayers(flowerIndex, dt, multiplier) {
+      const effectiveDt = dt * multiplier;
+      const interpolated = {};
+      const flowerLayerSet = flowerLayers[flowerIndex];
+      const pausedParams = flowerPausedParams[flowerIndex];
+      
+      // Update pause timers
+      for (const param in pausedParams) {
+        pausedParams[param].remaining -= effectiveDt;
+        if (pausedParams[param].remaining <= 0) {
+          delete pausedParams[param];
+        }
+      }
+      
+      for (const [layerName, layer] of Object.entries(flowerLayerSet)) {
+        layer.progress += effectiveDt / layer.duration;
+        while (layer.progress >= 1.0) { 
+          layer.progress -= 1.0; 
+          for (const param of layer.params) {
+            layer.current[param] = layer.next[param];
+            
+            // Check if param should enter pause state
+            if (PAUSE_CHANCE[param] && !pausedParams[param]) {
+              if (Math.random() < PAUSE_CHANCE[param]) {
+                const dur = PAUSE_DURATION[param];
+                const totalDur = dur.min + Math.random() * (dur.max - dur.min);
+                pausedParams[param] = { 
+                  remaining: totalDur, 
+                  total: totalDur,
+                  heldValue: layer.current[param]
+                };
+              }
+            }
+          }
+          const sharedTarget = (currentPhase === 'shared') ? layers[layerName].next : null;
+          generateFlowerNextState(flowerLayerSet, layerName, sharedTarget); 
+        }
+        const t = smoothstep(layer.progress);
+        for (const param of layer.params) {
+          const movingValue = lerp(layer.current[param], layer.next[param], t);
+          
+          if (pausedParams[param]) {
+            const pause = pausedParams[param];
+            const elapsed = pause.total - pause.remaining;
+            
+            let pauseStrength;
+            if (elapsed < PAUSE_FADE_TIME) {
+              pauseStrength = smoothstep(elapsed / PAUSE_FADE_TIME);
+            } else if (pause.remaining < PAUSE_FADE_TIME) {
+              pauseStrength = smoothstep(pause.remaining / PAUSE_FADE_TIME);
+            } else {
+              pauseStrength = 1.0;
+            }
+            
+            interpolated[param] = lerp(movingValue, pause.heldValue, pauseStrength);
+          } else {
+            interpolated[param] = movingValue;
+          }
+        }
+      }
+      
+      // Apply rate limits to wave parameters
+      const rateLimited = flowerRateLimitedValues[flowerIndex];
+      for (const [param, maxRate] of Object.entries(RATE_LIMITS)) {
+        if (rateLimited[param] === null) {
+          rateLimited[param] = interpolated[param];
+        } else {
+          const target = interpolated[param];
+          const current = rateLimited[param];
+          const maxChange = maxRate * effectiveDt;
+          const diff = target - current;
+          const clampedDiff = Math.max(-maxChange, Math.min(maxChange, diff));
+          rateLimited[param] = current + clampedDiff;
+        }
+        interpolated[param] = rateLimited[param];
+      }
+      
+      return interpolated;
+    }
+    
+    createFlowerLayerSystem();
+    
+    // ============================================
+    // PHASE SWITCHING SYSTEM
+    // ============================================
+    
+    let phaseCycleDuration = 20;  // Number of glacial cycles per phase
+    let sharedBlendValue = 0;     // 0 = full unique, 1 = full shared
+    let currentPhase = 'unique';  // 'unique' or 'shared'
+    let cycleCounter = 0;         // Count glacial layer completions
+    let lastGlacialGeneration = 0;
+    
+    // Auto-blend momentum system
+    let blendVelocity = 0;        // Current velocity of blend value
+    const BLEND_MAX_SPEED = 0.008;  // Max speed per second (default cap)
+    const BLEND_BOOSTED_SPEED = 0.05;  // Max speed when tap-holding
+    const BLEND_RAMP_TIME = 30;     // Seconds to reach max speed
+    const BLEND_ACCELERATION = BLEND_MAX_SPEED / BLEND_RAMP_TIME;
+    let blendLocked = false;      // When locked, auto-blend is disabled
+    let currentBlendSpeedCap = BLEND_MAX_SPEED;  // Dynamic speed cap
+    
+    // Wave speed boosting system
+    const WAVE_SPEED_NORMAL_MAX = 1.0;   // Normal cap from paramDefs
+    const WAVE_SPEED_BOOSTED_MAX = 4.0;  // Boosted cap when tap-holding
+    let waveSpeedMultiplier = 1.0;       // Dynamic multiplier for wave speed
+    
+    function updateAutoBlend(dt, isHolding) {
+      // Skip auto-blend if locked
+      if (blendLocked) return;
+      
+      // Update dynamic speed cap based on hold state
+      if (isHolding) {
+        // Accelerate toward boosted speed
+        currentBlendSpeedCap = Math.min(currentBlendSpeedCap + 0.02 * dt, BLEND_BOOSTED_SPEED);
+      } else if (currentBlendSpeedCap > BLEND_MAX_SPEED) {
+        // Slowly decay back to normal speed
+        currentBlendSpeedCap = Math.max(currentBlendSpeedCap - 0.01 * dt, BLEND_MAX_SPEED);
+      }
+      
+      // Determine target velocity based on phase (using dynamic cap)
+      const targetVelocity = (currentPhase === 'shared') ? currentBlendSpeedCap : -currentBlendSpeedCap;
+      
+      // Apply acceleration toward target velocity (scales with speed cap)
+      const accel = (currentBlendSpeedCap / BLEND_RAMP_TIME) * dt;
+      if (blendVelocity < targetVelocity) {
+        blendVelocity = Math.min(blendVelocity + accel, targetVelocity);
+      } else if (blendVelocity > targetVelocity) {
+        blendVelocity = Math.max(blendVelocity - accel, targetVelocity);
+      }
+      
+      // Apply velocity to blend value
+      sharedBlendValue += blendVelocity * dt;
+      
+      // If we hit a boundary, zero out momentum for rest of phase
+      if (sharedBlendValue <= 0 || sharedBlendValue >= 1) {
+        sharedBlendValue = Math.max(0, Math.min(1, sharedBlendValue));
+        blendVelocity = 0;
+      }
+      
+      // Update the UI slider to reflect the auto-blend value
+      const blendSlider = document.querySelector('[data-param="sharedBlend"] input[type="range"]');
+      const blendDisplay = document.querySelector('[data-param="sharedBlend"] .value');
+      if (blendSlider) blendSlider.value = sharedBlendValue;
+      if (blendDisplay) blendDisplay.textContent = sharedBlendValue.toFixed(2);
+    }
+    
+    function blendParams(uniqueParams, sharedParams, blend) {
+      const result = {};
+      for (const param in uniqueParams) {
+        if (sharedParams[param] !== undefined) {
+          result[param] = lerp(uniqueParams[param], sharedParams[param], blend);
+        } else {
+          result[param] = uniqueParams[param];
+        }
+      }
+      return result;
+    }
+    
+    function updatePhaseSystem() {
+      // Track glacial layer generation to count cycles
+      const glacialGen = layers.glacial.generation;
+      if (glacialGen !== lastGlacialGeneration) {
+        cycleCounter++;
+        lastGlacialGeneration = glacialGen;
+        
+        // Check if we should switch phases
+        if (cycleCounter >= phaseCycleDuration) {
+          cycleCounter = 0;
+          currentPhase = currentPhase === 'unique' ? 'shared' : 'unique';
+          // Velocity carries through - true momentum-based physics
+        }
+      }
+      
+      // Update UI
+      const phaseIndicator = document.getElementById('phaseIndicator');
+      const cycleProgressBar = document.getElementById('cycleProgressBar');
+      const cycleProgressValue = document.getElementById('cycleProgressValue');
+      
+      if (phaseIndicator) {
+        phaseIndicator.textContent = currentPhase.toUpperCase();
+        phaseIndicator.style.color = currentPhase === 'shared' ? '#f4d03f' : '#22d3ee';
+      }
+      if (cycleProgressBar) {
+        cycleProgressBar.style.width = ((cycleCounter / phaseCycleDuration) * 100) + '%';
+        cycleProgressBar.style.background = currentPhase === 'shared' ? '#f4d03f' : '#22d3ee';
+      }
+      if (cycleProgressValue) {
+        cycleProgressValue.textContent = `${cycleCounter}/${phaseCycleDuration}`;
+      }
+    }
+    
+    function getEffectiveBlend() {
+      // Blend is purely user-controlled via slider
+      // Phase affects attractor targets, not blend value
+      return sharedBlendValue;
+    }
+
+    // ============================================
+    // TOUR MODE STATE
+    // ============================================
+    
+    let isTourMode = true;  // Tour mode on by default
+    let pseudoMode = false;
+    let tourPetals = MIN_PETALS;
+    let tourDirection = 1;  // 1 = ascending, -1 = descending
+
+    // ============================================
+    // MANUAL CONTROL PANEL
+    // ============================================
+    
+    const controlPanel = document.getElementById('controlPanel');
+    const panelToggle = document.getElementById('panelToggle');
+    const lockedParams = new Set();
+    const manualOverrides = {};
+    
+    // Log control values
+    const logControlValues = {
+      waveSpeed: 2.0
+    };
+    
+    const logControlDisplays = {
+      waveSpeed: document.getElementById('waveSpeedValue')
+    };
+    
+    function formatLogValue(val) {
+      if (val >= 1) return val.toFixed(2);
+      if (val >= 0.01) return val.toFixed(3);
+      return val.toExponential(1);
+    }
+    
+    function updateLogDisplay(param) {
+      logControlDisplays[param].textContent = formatLogValue(logControlValues[param]);
+    }
+    
+    // Initialize all log control buttons
+    document.querySelectorAll('.control-row.log-control').forEach(row => {
+      const param = row.dataset.param;
+      const lockBtn = row.querySelector('.lock-btn');
+      const def = paramDefs[param];
+      
+      row.querySelectorAll('.log-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const mult = parseFloat(btn.dataset.mult);
+          logControlValues[param] = Math.max(def.min, Math.min(def.max, logControlValues[param] * mult));
+          manualOverrides[param] = logControlValues[param];
+          updateLogDisplay(param);
+          
+          // Auto-lock when user adjusts
+          if (!lockedParams.has(param)) {
+            lockedParams.add(param);
+            lockBtn.classList.add('locked');
+            lockBtn.textContent = '🔒';
+            row.classList.add('locked');
+          }
+        });
+      });
+      
+      // Lock button for log controls
+      lockBtn.addEventListener('click', () => {
+        if (lockedParams.has(param)) {
+          lockedParams.delete(param);
+          delete manualOverrides[param];
+          lockBtn.classList.remove('locked');
+          lockBtn.textContent = '🔓';
+          row.classList.remove('locked');
+        } else {
+          lockedParams.add(param);
+          manualOverrides[param] = logControlValues[param];
+          lockBtn.classList.add('locked');
+          lockBtn.textContent = '🔒';
+          row.classList.add('locked');
+        }
+      });
+    });
+    
+    // Panel toggle - always visible, toggles panel visibility
+    panelToggle.addEventListener('click', () => {
+      const isHidden = controlPanel.classList.toggle('hidden');
+      panelToggle.textContent = isHidden ? '⚙' : '✕';
+    });
+    
+    // Fullscreen toggle
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    
+    function updateFullscreenIcon() {
+      fullscreenBtn.textContent = document.fullscreenElement ? '⛶' : '⛶';
+    }
+    
+    fullscreenBtn.addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(err => {
+          console.log('Fullscreen error:', err);
+        });
+      } else {
+        document.exitFullscreen();
+      }
+    });
+    
+    document.addEventListener('fullscreenchange', updateFullscreenIcon);
+    
+    // Phase control sliders
+    const phaseDurationSlider = document.getElementById('phaseDurationSlider');
+    const phaseDurationValue = document.getElementById('phaseDurationValue');
+    const sharedBlendSlider = document.getElementById('sharedBlendSlider');
+    const sharedBlendValueDisplay = document.getElementById('sharedBlendValue');
+    
+    if (phaseDurationSlider) {
+      phaseDurationSlider.value = phaseCycleDuration;
+      phaseDurationSlider.addEventListener('input', (e) => {
+        phaseCycleDuration = parseInt(e.target.value);
+        phaseDurationValue.textContent = phaseCycleDuration;
+      });
+    }
+    
+    if (sharedBlendSlider) {
+      sharedBlendSlider.value = sharedBlendValue;
+      sharedBlendSlider.addEventListener('input', (e) => {
+        sharedBlendValue = parseFloat(e.target.value);
+        sharedBlendValueDisplay.textContent = sharedBlendValue.toFixed(2);
+        // Auto-lock when user adjusts slider
+        if (!blendLocked) {
+          blendLocked = true;
+          const lockBtn = document.getElementById('blendLockBtn');
+          const row = document.querySelector('[data-param="sharedBlend"]');
+          if (lockBtn) { lockBtn.textContent = '\u{1F512}'; lockBtn.classList.add('locked'); }
+          if (row) row.classList.add('locked');
+        }
+      });
+    }
+    
+    // Blend lock button
+    const blendLockBtn = document.getElementById('blendLockBtn');
+    if (blendLockBtn) {
+      blendLockBtn.addEventListener('click', () => {
+        blendLocked = !blendLocked;
+        const row = document.querySelector('[data-param="sharedBlend"]');
+        if (blendLocked) {
+          blendLockBtn.textContent = '\u{1F512}';
+          blendLockBtn.classList.add('locked');
+          if (row) row.classList.add('locked');
+        } else {
+          blendLockBtn.textContent = '\u{1F513}';
+          blendLockBtn.classList.remove('locked');
+          if (row) row.classList.remove('locked');
+        }
+      });
+    }
+    
+    // Keyboard shortcuts for panel
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
+        const isHidden = controlPanel.classList.toggle('hidden');
+        panelToggle.textContent = isHidden ? '⚙' : '✕';
+      }
+      if (e.key === 'f' || e.key === 'F') {
+        fullscreenBtn.click();
+      }
+    });
+    
+    // Initialize slider control rows (skip log controls and phase controls without lock buttons)
+    document.querySelectorAll('.control-row[data-param]:not(.log-control)').forEach(row => {
+      const param = row.dataset.param;
+      
+      // Skip phase controls (handled separately)
+      if (param === 'phaseDuration' || param === 'sharedBlend') return;
+      
+      const slider = row.querySelector('input[type="range"]');
+      if (!slider) return;
+      
+      const valueDisplay = row.querySelector('.value');
+      const lockBtn = row.querySelector('.lock-btn');
+      
+      // Skip rows without lock buttons
+      if (!lockBtn) return;
+      
+      // Update value display on slider change
+      slider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        manualOverrides[param] = val;
+        
+        // Format based on parameter
+        if (param === 'particleCount') {
+          valueDisplay.textContent = Math.round(val);
+        } else if (param === 'numPetals') {
+          valueDisplay.textContent = val.toFixed(2);
+        } else {
+          valueDisplay.textContent = val.toFixed(2);
+        }
+        
+        // Auto-lock when user adjusts
+        if (!lockedParams.has(param)) {
+          lockedParams.add(param);
+          lockBtn.classList.add('locked');
+          lockBtn.textContent = '🔒';
+          row.classList.add('locked');
+        }
+      });
+      
+      // Lock button toggle
+      lockBtn.addEventListener('click', () => {
+        if (lockedParams.has(param)) {
+          lockedParams.delete(param);
+          delete manualOverrides[param];
+          lockBtn.classList.remove('locked');
+          lockBtn.textContent = '🔓';
+          row.classList.remove('locked');
+        } else {
+          lockedParams.add(param);
+          manualOverrides[param] = parseFloat(slider.value);
+          lockBtn.classList.add('locked');
+          lockBtn.textContent = '🔒';
+          row.classList.add('locked');
+        }
+      });
+    });
+    
+    // Update sliders from current params (for unlocked params)
+    function updateControlPanel(params) {
+      // Handle log controls
+      for (const param of Object.keys(logControlValues)) {
+        if (!lockedParams.has(param) && params[param] !== undefined) {
+          logControlValues[param] = params[param];
+          updateLogDisplay(param);
+        }
+      }
+      
+      document.querySelectorAll('.control-row[data-param]:not(.log-control)').forEach(row => {
+        const param = row.dataset.param;
+        
+        // Skip phase controls (they're not part of the evolution system)
+        if (param === 'phaseDuration' || param === 'sharedBlend') return;
+        
+        // Skip rows without lock buttons
+        const lockBtn = row.querySelector('.lock-btn');
+        if (!lockBtn) return;
+        
+        if (lockedParams.has(param)) return; // Don't update locked params
+        
+        const slider = row.querySelector('input[type="range"]');
+        if (!slider) return;
+        
+        const valueDisplay = row.querySelector('.value');
+        const val = params[param];
+        
+        if (val !== undefined) {
+          slider.value = val;
+          if (param === 'particleCount') {
+            valueDisplay.textContent = Math.round(val);
+          } else if (param === 'numPetals') {
+            valueDisplay.textContent = val.toFixed(2);
+          } else {
+            valueDisplay.textContent = val.toFixed(2);
+          }
+        }
+      });
+    }
+    
+    // Apply manual overrides to params
+    function applyManualOverrides(params) {
+      for (const [param, value] of Object.entries(manualOverrides)) {
+        if (lockedParams.has(param)) {
+          params[param] = value;
+        }
+      }
+      return params;
+    }
+
+    // ============================================
+    // THREE.JS RENDERER
+    // ============================================
+
+    const canvas = document.getElementById('c');
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    let cameraAngle = 0, cameraRadius = 35; // Increased for sphere
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    // ============================================
+    // SPHERICAL FLOWER DISTRIBUTION
+    // ============================================
+    
+    const SPHERE_RADIUS = 12;
+    const NUM_FLOWERS = 19;
+    
+    // Generate Fibonacci sphere points for even distribution
+    function fibonacciSphere(numPoints, radius) {
+      const points = [];
+      const goldenRatio = (1 + Math.sqrt(5)) / 2;
+      
+      for (let i = 0; i < numPoints; i++) {
+        // Fibonacci sphere algorithm
+        const theta = 2 * Math.PI * i / goldenRatio;
+        const phi = Math.acos(1 - 2 * (i + 0.5) / numPoints);
+        
+        const x = radius * Math.sin(phi) * Math.cos(theta);
+        const y = radius * Math.cos(phi);
+        const z = radius * Math.sin(phi) * Math.sin(theta);
+        
+        // Calculate normal (points outward from sphere center)
+        const normal = new THREE.Vector3(x, y, z).normalize();
+        
+        points.push({
+          position: [x, y, z],
+          normal: normal,
+          phi: phi,
+          theta: theta
+        });
+      }
+      return points;
+    }
+    
+    const spherePoints = fibonacciSphere(NUM_FLOWERS, SPHERE_RADIUS);
+    
+    // Create flower data with sphere positions and orientations
+    const flowerData = spherePoints.map((point, index) => ({
+      pos: point.position,
+      normal: point.normal,
+      phi: point.phi,
+      theta: point.theta,
+      ringIndex: Math.floor(index / 7) // Group into 3 "rings" for rotation variation
+    }));
+
+    let flowers = [];
+    const MAX_PARTICLES = 3500;
+    const ringRotations = [0, 0, 0];
+
+    function computeParticle(i, count, params, time) {
+      const safeSize = Math.max(0.1, params.flowerSize), safeCount = Math.max(1, count);
+      const safePetals = Math.max(3, params.numPetals);
+      
+      const fraction = i / safeCount;
+      const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+      const theta = i * goldenAngle;
+      
+      // Single layer - simplified
+      const petalAngle = theta * safePetals;
+      const petalShape = Math.pow(Math.sin(petalAngle * 0.5), 8) * 0.8 + 0.2;
+      const r = Math.sqrt(fraction) * safeSize, modulatedR = r * petalShape;
+      const baseX = modulatedR * Math.cos(theta), baseY = modulatedR * Math.sin(theta);
+      const dist = Math.sqrt(baseX * baseX + baseY * baseY);
+      
+      // Wave computation
+      const spatialWaveFreq = params.temporalOffset || 1.0;
+      
+      // DYNAMIC MODIFICATION: Inverse relationship between strength and speed
+      let waveSpeed = params.waveSpeed || 0.5;
+      if (params.waveStrength > 2.0) {
+        waveSpeed = waveSpeed / (1 + (params.waveStrength - 2.0) * 0.15);
+      }
+      
+      const wavePhase = dist * spatialWaveFreq - time * waveSpeed;
+      const waveZ = Math.sin(wavePhase) * params.waveStrength;
+      const baseZ = Math.pow(r / safeSize, 2) * params.petalCurve * safeSize;
+      const finalZ = baseZ + waveZ;
+      
+      // Color
+      const centerColor = [params.centerR, params.centerG, params.centerB];
+      const innerColor = [params.innerR, params.innerG, params.innerB];
+      const outerColor = [params.outerR, params.outerG, params.outerB];
+      const radiusRatio = Math.sqrt(fraction);
+      const t = Math.min(radiusRatio * 1.5, 1.0);
+      let finalR = centerColor[0] + (innerColor[0] - centerColor[0]) * t + (outerColor[0] - innerColor[0]) * t * t;
+      let finalG = centerColor[1] + (innerColor[1] - centerColor[1]) * t + (outerColor[1] - innerColor[1]) * t * t;
+      let finalB = centerColor[2] + (innerColor[2] - centerColor[2]) * t + (outerColor[2] - innerColor[2]) * t * t;
+      if (i < safeCount * 0.08) { const boost = params.goldenCenterBoost; finalR += (1.0 - finalR) * boost * 0.5; finalG += (0.85 - finalG) * boost * 0.5; finalB *= (1.0 - boost * 0.3); }
+      return { x: baseX, y: baseY, z: finalZ, r: finalR, g: finalG, b: finalB };
+    }
+
+    function createFlowerGeometry(flowerIndex, params, targetCount, time) {
+      const positions = new Float32Array(targetCount * 3), colors = new Float32Array(targetCount * 3);
+      const visibleCount = Math.min(targetCount, Math.round(params.particleCount));
+      for (let i = 0; i < targetCount; i++) {
+        const i3 = i * 3;
+        if (i >= visibleCount) { positions[i3] = 0; positions[i3+1] = 0; positions[i3+2] = -1000; colors[i3] = 0; colors[i3+1] = 0; colors[i3+2] = 0; continue; }
+        const p = computeParticle(i, visibleCount, params, time);
+        positions[i3] = p.x; positions[i3+1] = p.y; positions[i3+2] = p.z;
+        colors[i3] = p.r; colors[i3+1] = p.g; colors[i3+2] = p.b;
+        if (isNaN(positions[i3])) positions[i3] = 0; if (isNaN(positions[i3+1])) positions[i3+1] = 0; if (isNaN(positions[i3+2])) positions[i3+2] = 0;
+        if (isNaN(colors[i3])) colors[i3] = 0; if (isNaN(colors[i3+1])) colors[i3+1] = 0; if (isNaN(colors[i3+2])) colors[i3+2] = 0;
+      }
+      return { positions, colors, count: targetCount };
+    }
+
+    function rebuildFlowers(params) {
+      flowers.forEach(f => { scene.remove(f.points); f.points.geometry.dispose(); f.points.material.dispose(); });
+      flowers = [];
+      flowerData.forEach((data, i) => {
+        const { positions, colors } = createFlowerGeometry(i, params, MAX_PARTICLES, 0);
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        const material = new THREE.PointsMaterial({ size: params.pointSize, vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, sizeAttenuation: true });
+        const points = new THREE.Points(geometry, material);
+        
+        // Orient flower to face outward from sphere surface
+        // The flower's local Z axis should align with the sphere normal
+        const normal = data.normal;
+        
+        // Create rotation to align flower's Z-up with sphere normal
+        const up = new THREE.Vector3(0, 0, 1); // Flower's original "up" direction
+        const quaternion = new THREE.Quaternion();
+        quaternion.setFromUnitVectors(up, normal);
+        points.quaternion.copy(quaternion);
+        
+        // Position on sphere surface
+        points.position.set(data.pos[0], data.pos[1], data.pos[2]);
+        
+        flowers.push({ points, ringIndex: data.ringIndex, baseQuaternion: quaternion.clone() });
+        scene.add(points);
+      });
+    }
+
+    function updateFlowers(sharedParams, flowerParamsArray, time, dt) {
+      ringRotations[0] += dt * sharedParams.ringRotationBase;
+      ringRotations[1] += dt * (sharedParams.ringRotationBase + sharedParams.ringRotationDelta);
+      ringRotations[2] += dt * (sharedParams.ringRotationBase + sharedParams.ringRotationDelta * 2);
+      
+      flowers.forEach((flower, flowerIdx) => {
+        const data = flowerData[flowerIdx];
+        
+        // Get this flower's params (either unique or blended with shared)
+        const params = flowerParamsArray[flowerIdx];
+        
+        // Apply spin rotation around the flower's local normal (outward from sphere)
+        const effectiveRotationOffset = flowerRotationOffset + (isInteracting ? dragDeltaY * 3 : 0);
+        const spinAngle = time * params.rotationSpeed + ringRotations[data.ringIndex] + effectiveRotationOffset;
+        const spinQuat = new THREE.Quaternion();
+        spinQuat.setFromAxisAngle(new THREE.Vector3(0, 0, 1), spinAngle);
+        
+        // Combine base orientation with spin
+        flower.points.quaternion.copy(flower.baseQuaternion);
+        flower.points.quaternion.multiply(spinQuat);
+        
+        flower.points.material.size = params.pointSize;
+        const { positions, colors } = createFlowerGeometry(flowerIdx, params, MAX_PARTICLES, time);
+        const posArray = flower.points.geometry.attributes.position.array;
+        const colorArray = flower.points.geometry.attributes.color.array;
+        for (let i = 0; i < MAX_PARTICLES * 3; i++) { posArray[i] = positions[i]; colorArray[i] = colors[i]; }
+        flower.points.geometry.attributes.position.needsUpdate = true;
+        flower.points.geometry.attributes.color.needsUpdate = true;
+      });
+    }
+
+    const initialParams = updateLayers(0, 1);
+    rebuildFlowers(initialParams);
+
+    window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+
+    let evolutionMultiplier = 1.0;
+    const ACCEL_RATE = 0.5, DECEL_RATE = 1.5;
+    let isInteracting = false;
+    
+    // Touch/mouse drag offsets
+    let interactionStartX = 0, interactionStartY = 0;
+    let cameraOrbitOffset = 0;      // Accumulated X offset for camera orbit
+    let flowerRotationOffset = 0;   // Accumulated Y offset for flower rotation
+    let dragDeltaX = 0, dragDeltaY = 0;  // Current drag delta from start
+    
+    function startInteraction(x, y) {
+      isInteracting = true;
+      interactionStartX = x;
+      interactionStartY = y;
+      dragDeltaX = 0;
+      dragDeltaY = 0;
+    }
+    
+    function updateInteraction(x, y) {
+      if (!isInteracting) return;
+      dragDeltaX = (x - interactionStartX) / window.innerWidth;  // Normalized
+      dragDeltaY = (y - interactionStartY) / window.innerHeight;
+    }
+    
+    function endInteraction() {
+      if (isInteracting) {
+        // Commit the drag deltas to permanent offsets
+        cameraOrbitOffset += dragDeltaX * 2;  // Scale for camera orbit
+        flowerRotationOffset += dragDeltaY * 3;  // Scale for flower rotation
+      }
+      isInteracting = false;
+      dragDeltaX = 0;
+      dragDeltaY = 0;
+    }
+    
+    canvas.addEventListener('mousedown', e => { e.preventDefault(); startInteraction(e.clientX, e.clientY); });
+    canvas.addEventListener('mousemove', e => { updateInteraction(e.clientX, e.clientY); });
+    canvas.addEventListener('mouseup', () => endInteraction());
+    canvas.addEventListener('mouseleave', () => endInteraction());
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); startInteraction(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+    canvas.addEventListener('touchmove', e => { if (e.touches.length > 0) updateInteraction(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+    canvas.addEventListener('touchend', () => endInteraction());
+    canvas.addEventListener('touchcancel', () => endInteraction());
+
+    // ============================================
+    // ANIMATION LOOP
+    // ============================================
+
+    let lastTime = null;
+    let simTime = 0;
+    let lastPanelUpdate = 0;
+
+    function animate(timestamp) {
+      const realTime = timestamp / 1000;
+      
+      if (lastTime === null) { lastTime = realTime; requestAnimationFrame(animate); return; }
+      
+      const realDt = Math.min(realTime - lastTime, 0.1);
+      lastTime = realTime;
+
+      // Manual evolution speed (click/touch to accelerate)
+      if (isInteracting) {
+        evolutionMultiplier += ACCEL_RATE * realDt * evolutionMultiplier;
+        evolutionMultiplier = Math.min(evolutionMultiplier, 8.0);
+        // Boost wave speed multiplier
+        waveSpeedMultiplier = Math.min(waveSpeedMultiplier + 0.5 * realDt, WAVE_SPEED_BOOSTED_MAX);
+      } else {
+        if (evolutionMultiplier > 1.0) {
+          evolutionMultiplier = Math.max(1.0, evolutionMultiplier - DECEL_RATE * realDt * evolutionMultiplier);
+        }
+        // Slowly normalize wave speed multiplier
+        if (waveSpeedMultiplier > 1.0) {
+          waveSpeedMultiplier = Math.max(1.0, waveSpeedMultiplier - 0.3 * realDt);
+        }
+      }
+
+      // Get current params from evolution system
+      const params = updateLayers(realDt, evolutionMultiplier);
+      
+      // Apply wave speed boost multiplier
+      if (params.waveSpeed !== undefined) {
+        params.waveSpeed *= waveSpeedMultiplier;
+      }
+      
+      // Apply manual overrides from control panel
+      applyManualOverrides(params);
+      
+      // TOUR MODE: Override numPetals with coherence-aware sweep (unless manually locked)
+      if (isTourMode && !lockedParams.has('numPetals')) {
+        const tourStep = getTourSpeed(tourPetals, pseudoMode);
+        tourPetals += tourStep * tourDirection;
+        
+        // Reverse direction at bounds
+        if (tourPetals >= MAX_PETALS) {
+          tourPetals = MAX_PETALS;
+          tourDirection = -1;
+          lastTourSpeed = TOUR_CRUISE_SPEED;
+        } else if (tourPetals <= MIN_PETALS) {
+          tourPetals = MIN_PETALS;
+          tourDirection = 1;
+          lastTourSpeed = TOUR_CRUISE_SPEED;
+        }
+        
+        // Override the evolved numPetals
+        params.numPetals = tourPetals;
+      }
+      
+      // Update control panel sliders periodically (not every frame for performance)
+      if (realTime - lastPanelUpdate > 0.1) {
+        updateControlPanel(params);
+        lastPanelUpdate = realTime;
+      }
+      
+      // Update phase system
+      updatePhaseSystem();
+      
+      // Update auto-blend momentum
+      updateAutoBlend(realDt, isInteracting);
+      
+      // Get effective blend value (phase-aware)
+      const effectiveBlend = getEffectiveBlend();
+      
+      // Compute per-flower params with blending
+      const flowerParamsArray = [];
+      for (let f = 0; f < NUM_FLOWERS; f++) {
+        // Get unique params for this flower
+        const uniqueParams = updateFlowerLayers(f, realDt, evolutionMultiplier);
+        
+        // Apply tour mode numPetals to unique params too if not locked
+        if (isTourMode && !lockedParams.has('numPetals')) {
+          uniqueParams.numPetals = tourPetals;
+        }
+        
+        // Blend between unique and shared params
+        const blendedParams = blendParams(uniqueParams, params, effectiveBlend);
+        flowerParamsArray.push(blendedParams);
+      }
+      
+      // Update simulation time
+      simTime += realDt;
+
+      // Camera movement - orbit around sphere (with drag offset)
+      cameraAngle += realDt * 0.05;
+      const effectiveCameraAngle = cameraAngle + cameraOrbitOffset + (isInteracting ? dragDeltaX * 2 : 0);
+      camera.position.x = Math.sin(effectiveCameraAngle) * cameraRadius;
+      camera.position.z = Math.cos(effectiveCameraAngle) * cameraRadius;
+      camera.position.y = Math.sin(realTime * 0.08) * 15; // Orbit up and down around sphere
+      camera.lookAt(0, 0, 0);
+
+      // Update flowers with per-flower params
+      updateFlowers(params, flowerParamsArray, simTime, realDt);
+
+      // Background
+      const bgIntensity = 0.02 * (1 - params.vignetteStrength * 0.5);
+      renderer.setClearColor(new THREE.Color(bgIntensity, bgIntensity, bgIntensity * 1.2));
+      renderer.render(scene, camera);
+
+      requestAnimationFrame(animate);
+    }
+
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>

@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Evolving Squiggles — WebGL Animation System</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+canvas { display: block; width: 100vw; height: 100vh; }
+#info {
+  position: fixed; bottom: 24px; left: 24px;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  background: rgba(0,0,0,0.2); padding: 12px 16px; border-radius: 8px;
+  font-family: 'Fira Code', 'Courier New', monospace; font-size: 11px;
+  color: rgba(255,255,255,0.25); line-height: 1.6; pointer-events: none;
+  z-index: 10; max-width: 320px;
+}
+#typing-indicator {
+  position: fixed; top: 24px; right: 24px;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  background: rgba(0,0,0,0.2); padding: 8px 14px; border-radius: 8px;
+  font-family: 'Fira Code', 'Courier New', monospace; font-size: 11px;
+  color: rgba(255,255,255,0.0); line-height: 1.4; pointer-events: none;
+  z-index: 10; transition: color 0.3s ease;
+}
+#typing-indicator.active { color: rgba(255,255,255,0.35); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="info"></div>
+<div id="typing-indicator">typing…</div>
+
+<script>
+// ============================================================================
+// EVOLVING SQUIGGLES — WebGL Animation System
+// ============================================================================
+//
+// A grammar-based generative art system that produces continuously evolving
+// abstract "squiggle" patterns using WebGL fragment shaders.
+//
+// ARCHITECTURE OVERVIEW:
+//   1. Grammar System — generates "attractor" parameter sets from constrained
+//      random combinations of visual dimensions (rotation, wave, color, etc.)
+//   2. Multi-Layer Interpolation — parameters are grouped into 5 timing layers
+//      (glacial/slow/medium/fast/drift) that evolve independently
+//   3. WebGL Renderer — a single fragment shader draws all ribbons per-pixel
+//   4. Interaction System — external events (mouse, touch, TYPING) can
+//      accelerate evolution and inject parameter impulses
+//
+// HOW TO ADAPT FOR TYPING RESPONSE:
+//   This system exposes a global `SquiggleAPI` object with these methods:
+//
+//   SquiggleAPI.onTypingEvent(key)
+//     Call this when a key is pressed. It accelerates evolution and injects
+//     a small parameter impulse based on the character code.
+//
+//   SquiggleAPI.setParam(name, value)
+//     Directly override any animation parameter. See PARAMETER REFERENCE below.
+//
+//   SquiggleAPI.getParams()
+//     Returns a snapshot of all current interpolated parameters.
+//
+//   SquiggleAPI.setEvolutionMultiplier(value)
+//     Manually set the evolution speed (1.0 = normal, higher = faster changes).
+//
+//   SquiggleAPI.triggerBurst(intensity)
+//     Trigger a one-shot speed burst (intensity 0-1, decays automatically).
+//
+// PARAMETER REFERENCE (all are floats):
+//   count      — number of ribbons (1–9, integer)
+//   rotPer     — rotation increment per ribbon (0–1.8)
+//   spacing    — vertical gap between ribbons (0.02–0.35)
+//   waveFreq   — wave oscillation frequency (0.3–12)
+//   waveAmp    — wave amplitude (0.03–0.6)
+//   waveSpeed  — phase speed of wave animation (0.15–2.5)
+//   rotSpeed   — rotation animation speed (-0.3–0.3)
+//   softRadius — glow falloff radius (0.005–0.15)
+//   softInt    — glow intensity (0–0.5)
+//   edgeDist   — edge highlight offset (0–0.25)
+//   edgeSharp  — edge sharpness (0.001–0.06)
+//   edgeInt    — edge highlight intensity (0.05–1.8)
+//   chroma     — chromatic aberration amount (0–0.18)
+//   tintR      — red channel multiplier (0–1.5)
+//   tintG      — green channel multiplier (0–1.5)
+//   tintB      — blue channel multiplier (0–1.5)
+//   brightness — overall brightness (0.9–2.8)
+//   vignette   — vignette radius (0.2–3.5, smaller = tighter)
+//
+// GRAMMAR DIMENSIONS:
+//   rotation_class   — parallel | fan | radial | hyper-radial
+//   wave_register    — subsonic | low | mid | high
+//   count_class      — minimal | moderate | dense
+//   character        — crystalline | neon_glow | atmospheric
+//   color_mode       — prismatic | monoR | monoG | monoB | dualRG | dualRB | dualGB
+//   amplitude_class  — subtle | moderate | extreme
+//   edge_character   — solid | hollow | diffuse
+//   vignette_class   — tight | normal | wide
+//
+// ============================================================================
+
+(function() {
+  'use strict';
+
+  const canvas = document.getElementById('c');
+  const infoEl = document.getElementById('info');
+  const typingEl = document.getElementById('typing-indicator');
+
+  const gl = canvas.getContext('webgl', {
+    antialias: false,
+    powerPreference: 'high-performance'
+  });
+
+  if (!gl) {
+    document.body.innerHTML = '<p style="color:#fff;padding:2em">WebGL not supported</p>';
+    return;
+  }
+
+  // ---------- Utility ----------
+
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+  function randInRange(min, max) { return min + Math.random() * (max - min); }
+  function smoothstep(t) { return t * t * (3 - 2 * t); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  // ---------- Grammar System ----------
+
+  const dimensionValues = {
+    rotation_class: {
+      parallel:        { rotPer: [0.0, 0.05] },
+      fan:             { rotPer: [0.3, 0.5] },
+      radial:          { rotPer: [0.8, 1.0] },
+      'hyper-radial':  { rotPer: [1.2, 1.8] }
+    },
+    wave_register: {
+      subsonic: { waveFreq: [0.3, 0.8] },
+      low:      { waveFreq: [1.2, 2.5] },
+      mid:      { waveFreq: [4.0, 7.0] },
+      high:     { waveFreq: [9.0, 12.0] }
+    },
+    count_class: {
+      minimal:  { count: [1, 2] },
+      moderate: { count: [3, 4] },
+      dense:    { count: [7, 9] }
+    },
+    character: {
+      crystalline:  { softInt: [0, 0], edgeInt: [0.3, 1.5], softRadius: [0.005, 0.02] },
+      neon_glow:    { softInt: [0.1, 0.2], edgeInt: [0.05, 0.25], softRadius: [0.005, 0.02] },
+      atmospheric:  { softInt: [0.3, 0.5], edgeInt: [1.2, 1.6], softRadius: [0.08, 0.15] }
+    },
+    color_mode: {
+      prismatic: { chroma: [0.08, 0.15], tintR: [0.85, 1.0], tintG: [0.6, 0.8], tintB: [0.4, 0.6] },
+      monoR:     { chroma: [0, 0], tintR: [1.2, 1.5], tintG: [0, 0], tintB: [0, 0] },
+      monoG:     { chroma: [0, 0], tintR: [0, 0], tintG: [1.2, 1.5], tintB: [0, 0] },
+      monoB:     { chroma: [0, 0], tintR: [0, 0], tintG: [0, 0], tintB: [1.2, 1.5] },
+      dualRG:    { chroma: [0.1, 0.15], tintR: [0.8, 1.2], tintG: [0.8, 1.2], tintB: [0, 0] },
+      dualRB:    { chroma: [0.1, 0.15], tintR: [0.5, 0.8], tintG: [0, 0], tintB: [1.0, 1.4] },
+      dualGB:    { chroma: [0.1, 0.15], tintR: [0, 0], tintG: [0.8, 1.2], tintB: [0.8, 1.2] }
+    },
+    amplitude_class: {
+      subtle:   { waveAmp: [0.03, 0.1] },
+      moderate: { waveAmp: [0.15, 0.3] },
+      extreme:  { waveAmp: [0.4, 0.6] }
+    },
+    edge_character: {
+      solid:   { edgeDist: [0, 0], edgeSharp: [0.001, 0.005] },
+      hollow:  { edgeDist: [0.1, 0.25], edgeSharp: [0.001, 0.005] },
+      diffuse: { edgeDist: [0, 0], edgeSharp: [0.04, 0.06] }
+    },
+    vignette_class: {
+      tight:  { vignette: [0.2, 0.4], brightness: [2.0, 2.8] },
+      normal: { vignette: [0.8, 1.2], brightness: [1.1, 1.5] },
+      wide:   { vignette: [2.5, 3.5], brightness: [1.0, 1.3] }
+    }
+  };
+
+  function checkHardConstraints(a) {
+    if (a.count_class === 'dense' && a.rotation_class === 'hyper-radial')
+      if (a.character !== 'neon_glow') return false;
+    if (a.amplitude_class === 'extreme')
+      if (a.count_class !== 'minimal') return false;
+    if (a.edge_character === 'hollow')
+      if (a.character !== 'crystalline') return false;
+    if (a.edge_character === 'diffuse')
+      if (a.vignette_class !== 'tight' && a.count_class !== 'minimal') return false;
+    if (a.rotation_class === 'hyper-radial')
+      if (a.vignette_class === 'wide') return false;
+    return true;
+  }
+
+  function scoreSoftConstraints(a) {
+    let score = 1.0;
+    if (a.character === 'atmospheric' && a.color_mode !== 'prismatic') score *= 0.6;
+    if (a.wave_register === 'subsonic' && !['parallel','fan'].includes(a.rotation_class)) score *= 0.65;
+    if (a.wave_register === 'high' && !['radial','hyper-radial'].includes(a.rotation_class)) score *= 0.7;
+    if (a.count_class === 'dense' && a.rotation_class !== 'parallel' && a.character !== 'neon_glow') score *= 0.625;
+    if (['monoR','monoG','monoB'].includes(a.color_mode) && a.character === 'atmospheric') score *= 0.65;
+    if (a.amplitude_class === 'extreme' && a.vignette_class !== 'tight') score *= 0.575;
+    if (a.character === 'neon_glow' && a.wave_register !== 'high') score *= 0.7;
+    if (a.edge_character === 'hollow' && !['subsonic','low'].includes(a.wave_register)) score *= 0.675;
+    return score;
+  }
+
+  function resolveToParameters(a) {
+    const params = {
+      spacing: randInRange(0.05, 0.25),
+      rotSpeed: randInRange(-0.1, 0.1),
+      waveSpeed: randInRange(0.3, 2.0)
+    };
+    for (const [dimension, className] of Object.entries(a)) {
+      const mapping = dimensionValues[dimension]?.[className];
+      if (mapping) {
+        for (const [param, value] of Object.entries(mapping)) {
+          params[param] = Array.isArray(value) ? randInRange(value[0], value[1]) : value;
+        }
+      }
+    }
+    if (typeof params.count === 'number') params.count = Math.round(params.count);
+    if (['monoR','monoG','monoB'].includes(a.color_mode))
+      params.brightness = (params.brightness || 1.3) * 1.3;
+    if (['radial','hyper-radial'].includes(a.rotation_class))
+      params.spacing = randInRange(0.03, 0.12);
+    if (a.wave_register === 'subsonic' && a.amplitude_class !== 'extreme')
+      params.waveAmp = Math.min(params.waveAmp, 0.15);
+    if (Math.abs(params.rotSpeed) > params.waveSpeed * 0.8 && Math.random() > 0.05) {
+      const sign = params.rotSpeed > 0 ? 1 : -1;
+      params.rotSpeed = sign * params.waveSpeed * 0.8 * randInRange(0.3, 1.0);
+    }
+    params._grammar = a;
+    return params;
+  }
+
+  function generateAttractor(maxAttempts) {
+    maxAttempts = maxAttempts || 100;
+    const dims = Object.keys(dimensionValues);
+    for (let i = 0; i < maxAttempts; i++) {
+      const a = {
+        rotation_class:  pick(['parallel','fan','radial','hyper-radial']),
+        wave_register:   pick(['subsonic','low','mid','high']),
+        count_class:     pick(['minimal','moderate','dense']),
+        character:       pick(['crystalline','neon_glow','atmospheric']),
+        color_mode:      pick(['prismatic','monoR','monoG','monoB','dualRG','dualRB','dualGB']),
+        amplitude_class: pick(['subtle','moderate','extreme']),
+        edge_character:  pick(['solid','hollow','diffuse']),
+        vignette_class:  pick(['tight','normal','wide'])
+      };
+      if (!checkHardConstraints(a)) continue;
+      if (Math.random() < scoreSoftConstraints(a)) return resolveToParameters(a);
+    }
+    return resolveToParameters({
+      rotation_class: 'radial', wave_register: 'mid', count_class: 'moderate',
+      character: 'crystalline', color_mode: 'prismatic', amplitude_class: 'moderate',
+      edge_character: 'solid', vignette_class: 'normal'
+    });
+  }
+
+  let attractorPool = [];
+  const POOL_SIZE = 12;
+  function refreshAttractorPool() {
+    attractorPool = [];
+    for (let i = 0; i < POOL_SIZE; i++) attractorPool.push(generateAttractor());
+  }
+  refreshAttractorPool();
+
+  // ---------- Multi-Layer Parameter Interpolation ----------
+
+  const paramDefs = {
+    count:      { min: 1,     max: 9,    quantize: 1, layer: 'glacial' },
+    rotPer:     { min: 0.0,   max: 1.8,              layer: 'glacial' },
+    spacing:    { min: 0.02,  max: 0.35,             layer: 'slow' },
+    softInt:    { min: 0,     max: 0.5,              layer: 'slow' },
+    edgeDist:   { min: 0,     max: 0.25,             layer: 'slow' },
+    waveFreq:   { min: 0.3,   max: 12.0,             layer: 'medium' },
+    waveAmp:    { min: 0.03,  max: 0.6,              layer: 'medium' },
+    softRadius: { min: 0.005, max: 0.15,             layer: 'medium' },
+    edgeInt:    { min: 0.05,  max: 1.8,              layer: 'medium' },
+    rotSpeed:   { min: -0.3,  max: 0.3,              layer: 'fast' },
+    waveSpeed:  { min: 0.15,  max: 2.5,              layer: 'fast' },
+    chroma:     { min: 0,     max: 0.18,             layer: 'fast' },
+    edgeSharp:  { min: 0.001, max: 0.06,             layer: 'fast' },
+    tintR:      { min: 0,     max: 1.5,              layer: 'drift' },
+    tintG:      { min: 0,     max: 1.5,              layer: 'drift' },
+    tintB:      { min: 0,     max: 1.5,              layer: 'drift' },
+    brightness: { min: 0.9,   max: 2.8,              layer: 'drift' },
+    vignette:   { min: 0.2,   max: 3.5,              layer: 'drift' }
+  };
+
+  const layerConfig = {
+    glacial: { baseDuration: 60, variance: 30 },
+    slow:    { baseDuration: 35, variance: 15 },
+    medium:  { baseDuration: 20, variance: 10 },
+    fast:    { baseDuration: 12, variance: 6 },
+    drift:   { baseDuration: 45, variance: 15 }
+  };
+
+  const layers = {};
+  const paramOverrides = {};
+
+  function initializeLayers() {
+    const initialState = {
+      count: 4, spacing: 0.3, rotPer: 0.4, rotSpeed: 0.05,
+      waveFreq: 3.0, waveAmp: 0.2, waveSpeed: 0.4, softRadius: 0.12,
+      softInt: 0.5, edgeDist: 0.08, edgeSharp: 0.01, edgeInt: 0.5,
+      chroma: 0.08, tintR: 1.0, tintG: 0.7, tintB: 0.5,
+      brightness: 1.2, vignette: 1.0
+    };
+    for (const [layerName, config] of Object.entries(layerConfig)) {
+      const layerParams = Object.entries(paramDefs)
+        .filter(([, def]) => def.layer === layerName)
+        .map(([name]) => name);
+      layers[layerName] = {
+        params: layerParams,
+        current: {}, next: {}, momentum: {},
+        progress: Math.random() * 0.3,
+        duration: config.baseDuration + (Math.random() - 0.5) * config.variance,
+        generation: 0
+      };
+      for (const param of layerParams) {
+        layers[layerName].current[param] = initialState[param];
+        layers[layerName].momentum[param] = (Math.random() - 0.5) * 0.1;
+      }
+      generateNextState(layerName);
+    }
+  }
+
+  function generateNextState(layerName) {
+    const layer = layers[layerName];
+    const useAttractor = Math.random() < 0.35;
+    const attractor = useAttractor ? pick(attractorPool) : null;
+    for (const param of layer.params) {
+      const def = paramDefs[param];
+      const range = def.max - def.min;
+      let m = (layer.momentum[param] || 0) * 0.7;
+      let impulse = (Math.random() - 0.5) * 0.3;
+      if (attractor && typeof attractor[param] === 'number') {
+        const attractorNorm = (attractor[param] - def.min) / range;
+        const currentNorm = (layer.current[param] - def.min) / range;
+        impulse += (attractorNorm - currentNorm) * 0.4;
+      }
+      m += impulse;
+      m = clamp(m, -0.4, 0.4);
+      let nextVal = layer.current[param] + m * range;
+      if (nextVal < def.min) { nextVal = def.min + (def.min - nextVal) * 0.3; m *= -0.5; }
+      if (nextVal > def.max) { nextVal = def.max - (nextVal - def.max) * 0.3; m *= -0.5; }
+      if (def.quantize) nextVal = Math.round(nextVal / def.quantize) * def.quantize;
+      nextVal = clamp(nextVal, def.min, def.max);
+      layer.next[param] = nextVal;
+      layer.momentum[param] = m;
+    }
+    if (layerName === 'fast') {
+      if (Math.abs(layer.next.rotSpeed) > layer.next.waveSpeed * 0.8 && Math.random() > 0.05) {
+        const sign = layer.next.rotSpeed > 0 ? 1 : -1;
+        layer.next.rotSpeed = sign * layer.next.waveSpeed * 0.8 * randInRange(0.3, 1.0);
+      }
+    }
+    const config = layerConfig[layerName];
+    layer.duration = config.baseDuration + (Math.random() - 0.5) * config.variance;
+    layer.generation++;
+    if (layer.generation % 20 === 0 && layerName === 'glacial') refreshAttractorPool();
+  }
+
+  function updateLayers(dt, multiplier) {
+    const effectiveDt = dt * multiplier;
+    const interpolated = {};
+    for (const [layerName, layer] of Object.entries(layers)) {
+      layer.progress += effectiveDt / layer.duration;
+      while (layer.progress >= 1.0) {
+        layer.progress -= 1.0;
+        for (const param of layer.params) layer.current[param] = layer.next[param];
+        generateNextState(layerName);
+      }
+      const t = smoothstep(layer.progress);
+      for (const param of layer.params) {
+        interpolated[param] = lerp(layer.current[param], layer.next[param], t);
+      }
+    }
+    for (const [param, value] of Object.entries(paramOverrides)) {
+      interpolated[param] = value;
+    }
+    return interpolated;
+  }
+
+  initializeLayers();
+
+  // ---------- WebGL Shader ----------
+
+  const fragSrc = `
+  precision mediump float;
+  uniform float t;
+  uniform vec2 r;
+  uniform float u_count, u_spacing, u_rotPer, u_waveFreq, u_waveAmp;
+  uniform float u_softRadius, u_softInt, u_edgeDist, u_edgeSharp, u_edgeInt;
+  uniform float u_chroma, u_wavePhase, u_rotPhase;
+  uniform vec3 u_tint;
+  uniform float u_brightness, u_vignette;
+
+  mat2 rot(float a) { return mat2(cos(a),-sin(a),sin(a),cos(a)); }
+  float soft(float d, float r) { return exp(-d*d/(r*r+0.0001)); }
+  float sharp(float d, float r) { return r/(d+r+0.0001); }
+
+  void main() {
+    vec2 uv = (gl_FragCoord.xy - r*0.5) / r.y;
+    vec3 col = vec3(0.0);
+    for(int ci=0; ci<3; ci++) {
+      float fi = float(ci);
+      float localWavePhase = u_wavePhase + fi*u_chroma;
+      float localRotPhase = u_rotPhase + fi*u_chroma*0.5;
+      vec2 p = uv;
+      float s = 0.0;
+      float halfCount = (u_count-1.0)*0.5;
+      for(float j=0.0; j<12.0; j++) {
+        if(j >= ceil(u_count)) break;
+        float ribbonOpacity = clamp(u_count-j, 0.0, 1.0);
+        vec2 rp = p * rot(j*u_rotPer + localRotPhase);
+        float wave = sin(rp.x*u_waveFreq + localWavePhase + j*2.0) * u_waveAmp;
+        float y = (j-halfCount)*u_spacing + wave;
+        float d = abs(rp.y - y);
+        float interior = soft(d, u_softRadius);
+        float edge = sharp(abs(d-u_edgeDist), u_edgeSharp) * u_edgeInt;
+        s += (interior*u_softInt + edge) * ribbonOpacity;
+      }
+      s = min(s, 1.5);
+      s *= soft(length(uv), u_vignette);
+      col[ci] = clamp(s, 0.0, 1.5);
+    }
+    col *= u_tint * u_brightness;
+    col = col/(col+0.4);
+    col = pow(col, vec3(0.88));
+    gl_FragColor = vec4(col, 1.0);
+  }`;
+
+  const vertSrc = 'attribute vec2 a;void main(){gl_Position=vec4(a,0,1);}';
+
+  function compile(src, type) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
+    return s;
+  }
+
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compile(vertSrc, gl.VERTEX_SHADER));
+  gl.attachShader(prog, compile(fragSrc, gl.FRAGMENT_SHADER));
+  gl.linkProgram(prog);
+
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+
+  const aLoc = gl.getAttribLocation(prog, 'a');
+  const tLoc = gl.getUniformLocation(prog, 't');
+  const rLoc = gl.getUniformLocation(prog, 'r');
+  const uLocs = {};
+  ['count','spacing','rotPer','waveFreq','waveAmp','softRadius','softInt',
+   'edgeDist','edgeSharp','edgeInt','chroma','wavePhase','rotPhase',
+   'tint','brightness','vignette'].forEach(name => {
+    uLocs[name] = gl.getUniformLocation(prog, 'u_' + name);
+  });
+
+  // ---------- Resize ----------
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio, 1.5);
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ---------- Interaction State ----------
+
+  let evolutionMultiplier = 1.0;
+  const ACCEL_RATE = 0.5;
+  const DECEL_RATE = 1.5;
+  let isInteracting = false;
+
+  canvas.addEventListener('mousedown', e => { e.preventDefault(); isInteracting = true; });
+  canvas.addEventListener('mouseup', () => isInteracting = false);
+  canvas.addEventListener('mouseleave', () => isInteracting = false);
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); isInteracting = true; }, { passive: false });
+  canvas.addEventListener('touchend', () => isInteracting = false);
+  canvas.addEventListener('touchcancel', () => isInteracting = false);
+
+  // ---------- Typing Interaction System ----------
+  //
+  // This is the main integration point for a typing-reactive system.
+  // Each keystroke calls onTypingEvent(), which:
+  //   1. Boosts evolutionMultiplier (speeds up parameter transitions)
+  //   2. Injects a small impulse into the 'fast' layer momentum based on char code
+  //   3. Optionally shifts color tint based on character groups
+  //
+  // You can customize the mapping in onTypingEvent() to taste.
+
+  let typingDecayTimer = 0;
+  let typingBurstEnergy = 0;
+
+  function onTypingEvent(key) {
+    const code = (typeof key === 'string') ? key.charCodeAt(0) : key;
+    const norm = (code % 96) / 96;
+
+    evolutionMultiplier = clamp(evolutionMultiplier + 0.3, 1.0, 8.0);
+
+    typingBurstEnergy = clamp(typingBurstEnergy + 0.15, 0, 1.0);
+    typingDecayTimer = 1.5;
+
+    typingEl.classList.add('active');
+
+    const fastLayer = layers['fast'];
+    if (fastLayer) {
+      fastLayer.momentum.waveSpeed += (norm - 0.5) * 0.15;
+      fastLayer.momentum.rotSpeed += ((code % 7) / 7 - 0.5) * 0.08;
+      fastLayer.momentum.chroma += (norm - 0.5) * 0.05;
+    }
+
+    const driftLayer = layers['drift'];
+    if (driftLayer) {
+      if (code % 3 === 0) driftLayer.momentum.tintR += 0.05;
+      if (code % 3 === 1) driftLayer.momentum.tintG += 0.05;
+      if (code % 3 === 2) driftLayer.momentum.tintB += 0.05;
+    }
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Enter' || e.key === ' ') {
+      onTypingEvent(e.key.length === 1 ? e.key : 'x');
+    }
+  });
+
+  // ---------- Render Loop ----------
+
+  const start = performance.now();
+  let wavePhase = 0, rotPhase = 0, lastTime = 0, lastUIUpdate = 0;
+
+  function render() {
+    const time = (performance.now() - start) / 1000;
+    const dt = Math.min(time - lastTime, 0.1);
+    lastTime = time;
+
+    if (typingDecayTimer > 0) {
+      typingDecayTimer -= dt;
+      if (typingDecayTimer <= 0) typingEl.classList.remove('active');
+    }
+    if (typingBurstEnergy > 0) {
+      typingBurstEnergy = Math.max(0, typingBurstEnergy - dt * 0.5);
+      evolutionMultiplier = clamp(evolutionMultiplier + typingBurstEnergy * dt * 2, 1.0, 8.0);
+    }
+
+    if (isInteracting) {
+      evolutionMultiplier += ACCEL_RATE * dt * evolutionMultiplier;
+    } else if (evolutionMultiplier > 1.0 && typingBurstEnergy <= 0) {
+      evolutionMultiplier = Math.max(1.0, evolutionMultiplier - DECEL_RATE * dt * evolutionMultiplier);
+    }
+
+    const params = updateLayers(dt, evolutionMultiplier);
+
+    const waveSpeedBoost = 1 + (evolutionMultiplier - 1) * 0.2;
+    wavePhase += dt * params.waveSpeed * waveSpeedBoost;
+    rotPhase += dt * params.rotSpeed;
+
+    gl.useProgram(prog);
+    gl.enableVertexAttribArray(aLoc);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
+
+    gl.uniform1f(tLoc, time);
+    gl.uniform2f(rLoc, canvas.width, canvas.height);
+    gl.uniform1f(uLocs.count, params.count);
+    gl.uniform1f(uLocs.spacing, params.spacing);
+    gl.uniform1f(uLocs.rotPer, params.rotPer);
+    gl.uniform1f(uLocs.waveFreq, params.waveFreq);
+    gl.uniform1f(uLocs.waveAmp, params.waveAmp);
+    gl.uniform1f(uLocs.softRadius, params.softRadius);
+    gl.uniform1f(uLocs.softInt, params.softInt);
+    gl.uniform1f(uLocs.edgeDist, params.edgeDist);
+    gl.uniform1f(uLocs.edgeSharp, params.edgeSharp);
+    gl.uniform1f(uLocs.edgeInt, params.edgeInt);
+    gl.uniform1f(uLocs.chroma, params.chroma);
+    gl.uniform1f(uLocs.wavePhase, wavePhase);
+    gl.uniform1f(uLocs.rotPhase, rotPhase);
+    gl.uniform3f(uLocs.tint, params.tintR, params.tintG, params.tintB);
+    gl.uniform1f(uLocs.brightness, params.brightness);
+    gl.uniform1f(uLocs.vignette, params.vignette);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    if (time - lastUIUpdate > 0.5) {
+      lastUIUpdate = time;
+      const speedTxt = evolutionMultiplier > 1.05 ? evolutionMultiplier.toFixed(1) + 'x ' : '';
+      infoEl.innerHTML =
+        (speedTxt ? speedTxt + '<br>' : '') +
+        'n=' + params.count.toFixed(0) + ' rot=' + params.rotPer.toFixed(2) +
+        ' freq=' + params.waveFreq.toFixed(1) + '<br>' +
+        'soft=' + params.softInt.toFixed(2) + ' edge=' + params.edgeInt.toFixed(2) + '<br>' +
+        'R=' + params.tintR.toFixed(2) + ' G=' + params.tintG.toFixed(2) +
+        ' B=' + params.tintB.toFixed(2);
+    }
+
+    requestAnimationFrame(render);
+  }
+
+  render();
+
+  // ---------- Public API ----------
+
+  window.SquiggleAPI = {
+    onTypingEvent: onTypingEvent,
+
+    setParam: function(name, value) {
+      if (paramDefs[name]) {
+        paramOverrides[name] = clamp(value, paramDefs[name].min, paramDefs[name].max);
+      }
+    },
+
+    clearParam: function(name) {
+      delete paramOverrides[name];
+    },
+
+    clearAllOverrides: function() {
+      for (const key of Object.keys(paramOverrides)) delete paramOverrides[key];
+    },
+
+    getParams: function() {
+      const snapshot = {};
+      for (const [layerName, layer] of Object.entries(layers)) {
+        const t = smoothstep(layer.progress);
+        for (const param of layer.params) {
+          snapshot[param] = lerp(layer.current[param], layer.next[param], t);
+        }
+      }
+      for (const [param, value] of Object.entries(paramOverrides)) {
+        snapshot[param] = value;
+      }
+      snapshot.evolutionMultiplier = evolutionMultiplier;
+      return snapshot;
+    },
+
+    setEvolutionMultiplier: function(value) {
+      evolutionMultiplier = clamp(value, 0.1, 20.0);
+    },
+
+    triggerBurst: function(intensity) {
+      intensity = clamp(intensity || 0.5, 0, 1);
+      typingBurstEnergy = clamp(typingBurstEnergy + intensity, 0, 1);
+      evolutionMultiplier = clamp(evolutionMultiplier + intensity * 2, 1.0, 8.0);
+    },
+
+    getParamDefs: function() {
+      return JSON.parse(JSON.stringify(paramDefs));
+    },
+
+    getGrammarDimensions: function() {
+      return JSON.parse(JSON.stringify(dimensionValues));
+    },
+
+    injectAttractor: function(grammarState) {
+      attractorPool[Math.floor(Math.random() * POOL_SIZE)] = resolveToParameters(grammarState);
+    },
+
+    refreshPool: refreshAttractorPool
+  };
+
+})();
+</script>
+</body>
+</html>
