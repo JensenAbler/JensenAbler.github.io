@@ -30,7 +30,7 @@ canvas { display: block; width: 100vw; height: 100vh; }
 <body>
 <canvas id="c"></canvas>
 <div id="info"></div>
-<div id="typing-indicator">typing…</div>
+<button id="fs-toggle" style="position:fixed;top:15px;left:15px;z-index:9999;background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:4px;padding:8px 12px;cursor:pointer;font-size:14px;opacity:0.6;transition:opacity 0.2s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6" onclick="if(!document.fullscreenElement){document.documentElement.requestFullscreen()}else{document.exitFullscreen()}">⛶</button>
 
 <script>
 // ============================================================================
