@@ -1,0 +1,1281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tunnel Aesthetic Grammar v6</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&family=Lora:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --anthropic-dark: #141413;
+    --anthropic-light: #faf9f5;
+    --anthropic-mid-gray: #b0aea5;
+    --anthropic-light-gray: #e8e6dc;
+    --anthropic-orange: #d97757;
+    --anthropic-blue: #6a9bcc;
+    --anthropic-green: #788c5d;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Poppins', sans-serif;
+    background: #000;
+    color: var(--anthropic-dark);
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+  }
+  canvas#gl {
+    display: block; width: 100vw; height: 100vh;
+    position: fixed; top: 0; left: 0; z-index: 0;
+  }
+  #panel-toggle {
+    position: fixed; top: 12px; right: 12px; z-index: 1000;
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(0,0,0,0.5); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    color: rgba(255,255,255,0.8); font-size: 20px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.2s, background 0.2s; font-family: monospace;
+  }
+  #panel-toggle:hover { background: rgba(0,0,0,0.7); }
+  #panel-toggle.open { transform: rotate(45deg); }
+  #panel {
+    position: fixed; top: 60px; right: 12px; z-index: 999;
+    width: 300px; max-height: calc(100vh - 76px); overflow-y: auto;
+    background: rgba(250,249,245,0.92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(0,0,0,0.08); border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3); display: none;
+    scrollbar-width: thin; scrollbar-color: var(--anthropic-light-gray) transparent;
+  }
+  #panel::-webkit-scrollbar { width: 4px; }
+  #panel::-webkit-scrollbar-track { background: transparent; }
+  #panel::-webkit-scrollbar-thumb { background: var(--anthropic-light-gray); border-radius: 2px; }
+  #panel.open { display: block; }
+
+  .panel-header { padding: 20px 20px 0; }
+  .panel-header h1 { font-family: 'Lora', serif; font-size: 18px; font-weight: 500; color: var(--anthropic-dark); margin-bottom: 4px; }
+  .panel-header .subtitle { font-size: 12px; color: var(--anthropic-mid-gray); margin-bottom: 16px; line-height: 1.4; }
+
+  .section { padding: 0 20px 16px; border-bottom: 1px solid var(--anthropic-light-gray); }
+  .section:last-of-type { border-bottom: none; }
+  .section h3 {
+    font-size: 13px; font-weight: 600; color: var(--anthropic-dark);
+    margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
+  }
+  .section h3::before { content: '•'; color: var(--anthropic-orange); font-weight: bold; }
+
+  .preset-name-display {
+    font-family: 'Lora', serif; font-size: 15px; font-weight: 500;
+    color: var(--anthropic-dark); text-align: center; padding: 8px;
+    background: var(--anthropic-light); border: 1px solid var(--anthropic-light-gray);
+    border-radius: 8px; margin-bottom: 10px;
+  }
+  .preset-nav { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+  .preset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .preset-chip {
+    padding: 5px 8px; font-size: 10px; font-weight: 500; font-family: 'Poppins', sans-serif;
+    border: 1px solid var(--anthropic-light-gray); border-radius: 6px;
+    background: white; color: var(--anthropic-dark); cursor: pointer;
+    transition: all 0.15s; text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .preset-chip:hover { border-color: var(--anthropic-orange); color: var(--anthropic-orange); }
+  .preset-chip.active { background: var(--anthropic-orange); border-color: var(--anthropic-orange); color: white; }
+  .preset-chip.user-preset { border-style: dashed; }
+  .preset-chip.user-preset.active { border-style: solid; }
+  .preset-chip.empty-slot { opacity: 0.4; cursor: default; border-style: dotted; }
+  .preset-chip.empty-slot:hover { border-color: var(--anthropic-light-gray); color: var(--anthropic-dark); }
+
+  .group { border-bottom: 1px solid var(--anthropic-light-gray); }
+  .group:last-of-type { border-bottom: none; }
+  .group-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; cursor: pointer; user-select: none; -webkit-user-select: none;
+    transition: background 0.1s;
+  }
+  .group-header:hover { background: rgba(0,0,0,0.02); }
+  .group-title {
+    font-size: 13px; font-weight: 600; color: var(--anthropic-dark);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .group-title::before { content: '•'; color: var(--anthropic-orange); font-weight: bold; }
+  .group-chevron { font-size: 10px; color: var(--anthropic-mid-gray); transition: transform 0.15s; font-family: monospace; }
+  .group.open .group-chevron { transform: rotate(90deg); }
+  .group-body { display: none; padding: 0 20px 12px; }
+  .group.open .group-body { display: block; }
+
+  .control-group { margin-bottom: 14px; }
+  .control-group label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 12px; font-weight: 500; color: var(--anthropic-dark); margin-bottom: 5px;
+  }
+  .value-display { font-family: 'Courier New', monospace; font-size: 11px; color: var(--anthropic-mid-gray); }
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 4px;
+    background: var(--anthropic-light-gray); border-radius: 2px; outline: none; cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px;
+    background: var(--anthropic-orange); border-radius: 50%; cursor: pointer; transition: transform 0.15s;
+  }
+  input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+  input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px; background: var(--anthropic-orange);
+    border-radius: 50%; border: none; cursor: pointer;
+  }
+
+  .btn {
+    padding: 7px 10px; font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 500;
+    border-radius: 6px; border: 1px solid var(--anthropic-light-gray);
+    background: white; color: var(--anthropic-dark); cursor: pointer; transition: all 0.15s; text-align: center;
+  }
+  .btn:hover { border-color: var(--anthropic-orange); color: var(--anthropic-orange); }
+  .nav-btn {
+    padding: 7px; font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 500;
+    border-radius: 6px; border: 1px solid var(--anthropic-light-gray);
+    background: white; color: var(--anthropic-dark); cursor: pointer; transition: all 0.15s;
+  }
+  .nav-btn:hover { border-color: var(--anthropic-orange); color: var(--anthropic-orange); }
+  .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+  /* Evolve toggle */
+  .evolve-toggle {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+  }
+  .evolve-toggle .toggle-label {
+    font-size: 12px; font-weight: 500; color: var(--anthropic-dark);
+  }
+  .toggle-switch {
+    position: relative; width: 40px; height: 22px; cursor: pointer;
+  }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-track {
+    position: absolute; inset: 0; background: var(--anthropic-light-gray);
+    border-radius: 11px; transition: background 0.2s;
+  }
+  .toggle-switch input:checked + .toggle-track { background: var(--anthropic-orange); }
+  .toggle-thumb {
+    position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+    background: white; border-radius: 50%; transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  }
+  .toggle-switch input:checked ~ .toggle-thumb { transform: translateX(18px); }
+
+  .evolve-status {
+    font-family: 'Courier New', monospace; font-size: 10px;
+    color: var(--anthropic-mid-gray); text-align: center;
+    padding: 4px 8px; margin-top: 8px;
+    background: var(--anthropic-light); border-radius: 4px;
+    min-height: 20px;
+  }
+
+  /* Save dialog */
+  .save-dialog {
+    display: none; margin-top: 8px;
+  }
+  .save-dialog.open { display: block; }
+  .save-input {
+    width: 100%; padding: 8px 10px; font-family: 'Poppins', sans-serif; font-size: 12px;
+    border: 1px solid var(--anthropic-light-gray); border-radius: 6px;
+    background: white; color: var(--anthropic-dark); outline: none;
+    margin-bottom: 6px;
+  }
+  .save-input:focus { border-color: var(--anthropic-orange); }
+  .save-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<button id="panel-toggle">+</button>
+<div id="panel">
+  <div class="panel-header">
+    <h1>Tunnel Aesthetic Grammar</h1>
+    <div class="subtitle">v7 — S+QWERTY to save · hold QWERTY to recall</div>
+  </div>
+
+  <!-- Presets -->
+  <div class="section">
+    <h3>Presets</h3>
+    <div class="preset-name-display" id="preset-name">Lava Lamp</div>
+    <div class="preset-nav">
+      <button class="nav-btn" id="prev-preset">← Prev</button>
+      <button class="nav-btn" id="random-preset" style="text-align:center">Random</button>
+      <button class="nav-btn" id="next-preset">Next →</button>
+    </div>
+    <div class="preset-grid" id="preset-grid"></div>
+    <div style="margin-top:10px">
+      <div style="font-size:11px;color:var(--anthropic-mid-gray);margin-bottom:6px;display:flex;justify-content:space-between">
+        <span>User Slots (S + key to save)</span>
+        <span style="font-family:monospace;font-size:10px">Q W E R T Y U I O P</span>
+      </div>
+      <div class="preset-grid" id="user-preset-grid"></div>
+    </div>
+  </div>
+
+  <!-- Evolve -->
+  <div class="section" id="evolve-section">
+    <h3>Evolve</h3>
+    <div class="evolve-toggle">
+      <label class="toggle-switch">
+        <input type="checkbox" id="evolve-enabled" checked>
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+      <span class="toggle-label" id="evolve-label">On</span>
+    </div>
+    <div class="control-group">
+      <label><span>Pace</span><span class="value-display" id="pace-value">slow</span></label>
+      <input type="range" id="pace-slider" min="0" max="1" step="any" value="0.125253013504124">
+    </div>
+    <div class="control-group">
+      <label><span>Drift</span><span class="value-display" id="drift-value">subtle</span></label>
+      <input type="range" id="drift-slider" min="0" max="1" step="any" value="0.111718679193982">
+    </div>
+    <div class="control-group">
+      <label><span>Blend</span><span class="value-display" id="blend-value">long morph</span></label>
+      <input type="range" id="blend-slider" min="0.05" max="1" step="any" value="0.743909549560436">
+    </div>
+    <div class="evolve-status" id="evolve-status"></div>
+  </div>
+
+  <!-- Parameters -->
+  <div id="param-groups"></div>
+
+  <!-- Actions -->
+  <div class="section">
+    <h3>Actions</h3>
+    <div class="control-group">
+      <label><span>Resolution</span><span class="value-display" id="res-value">100%</span></label>
+      <div class="button-row">
+        <button class="btn" id="res-down">− Lower</button>
+        <button class="btn" id="res-up">+ Higher</button>
+      </div>
+    </div>
+    <div class="button-row" style="margin-top:6px">
+      <button class="btn" id="copy-btn">Copy Params</button>
+      <button class="btn" id="reset-btn">Reset to Preset</button>
+    </div>
+    <div class="button-row" style="margin-top:6px">
+      <button class="btn" id="save-btn" style="grid-column:1/-1">Save as Preset</button>
+    </div>
+    <div class="save-dialog" id="save-dialog">
+      <input class="save-input" id="save-name" type="text" placeholder="Name your preset..." maxlength="24">
+      <div class="save-actions">
+        <button class="btn" id="save-confirm">Save</button>
+        <button class="btn" id="save-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// PRESETS (mutable — user can add to this)
+// ═══════════════════════════════════════════════════════════════
+const PRESETS = [
+  { name: "Default", user: false, params: {"sphereRadius":0.07,"spiralTwist":0.75,"lateralFreq":0.5,"lateralAmp":1,"tunnelRadius":1,"tunnelWarp":1,"blendK":0.1,"cellOffset":0.5,"glowIntensity":0.0008,"glowBase":2,"colorCycleRate":0.25,"phaseR":0,"phaseG":1,"phaseB":2,"exposure":0.8,"swayXFreq":0.3,"swayXAmp":0.15,"swayYFreq":0.25,"swayYAmp":0.1,"fov":1,"speed":1,"minDist":0.015,"minStep":0.001,"maxDist":40,"saturationCap":8}},
+  { name: "Lava Lamp", user: false, params: {"sphereRadius":0.07,"spiralTwist":0.75,"lateralFreq":0.5,"lateralAmp":1,"tunnelRadius":1,"tunnelWarp":1,"blendK":1.65171008403361,"cellOffset":0.5,"glowIntensity":0.0008,"glowBase":2,"colorCycleRate":0.336134453781513,"phaseR":-3.06084033613445,"phaseG":0.580504201680671,"phaseB":0.263865546218488,"exposure":2.24995798319328,"swayXFreq":0.3,"swayXAmp":0,"swayYFreq":0.25,"swayYAmp":0,"fov":1.61218487394958,"speed":0.042016806722689,"minDist":0.015,"minStep":0.001,"maxDist":40,"saturationCap":8}},
+  { name: "Reverse Lava Lamp", user: false, params: {"sphereRadius":0,"spiralTwist":-3.9327731092437,"lateralFreq":0.5,"lateralAmp":1,"tunnelRadius":1,"tunnelWarp":1,"blendK":1.87852521008403,"cellOffset":0.563025210084034,"glowIntensity":0.00361344537815126,"glowBase":1.4453781512605,"colorCycleRate":1.56302521008403,"phaseR":-2.69142857142857,"phaseG":2.32201680672269,"phaseB":0.263865546218488,"exposure":0.840546218487395,"swayXFreq":0.3,"swayXAmp":0.0527731092436975,"swayYFreq":1.04201680672269,"swayYAmp":0.184705882352941,"fov":1.06680672268908,"speed":-0.630252100840336,"minDist":0.0185882352941176,"minStep":0.0001,"maxDist":32.781512605042,"saturationCap":10}},
+  { name: "Fairy Tunnel", user: false, params: {"sphereRadius":0,"spiralTwist":-3.9327731092437,"lateralFreq":0.5,"lateralAmp":1,"tunnelRadius":1,"tunnelWarp":1,"blendK":0.706647058823529,"cellOffset":0.563025210084034,"glowIntensity":0.00310924369747899,"glowBase":2.11764705882353,"colorCycleRate":0.756302521008403,"phaseR":0.158319327731092,"phaseG":-0.369411764705882,"phaseB":-1.00268907563025,"exposure":0.840546218487395,"swayXFreq":0,"swayXAmp":0.0527731092436975,"swayYFreq":0.117647058823529,"swayYAmp":0.250672268907563,"fov":0.273529411764706,"speed":0.378151260504201,"minDist":0.0185882352941176,"minStep":0.0001,"maxDist":32.781512605042,"saturationCap":10}},
+  { name: "Lost in the Sauce", user: false, params: {"sphereRadius":0.0315126050420168,"spiralTwist":-1.71428571428571,"lateralFreq":0.5,"lateralAmp":1,"tunnelRadius":2.87394957983193,"tunnelWarp":1,"blendK":0.920861344537815,"cellOffset":1.31932773109244,"glowIntensity":0.00310924369747899,"glowBase":2.11764705882353,"colorCycleRate":2.0672268907563,"phaseR":1.58319327731092,"phaseG":-0.369411764705882,"phaseB":-1.00268907563025,"exposure":0.840546218487395,"swayXFreq":0.38655462184874,"swayXAmp":0.765210084033613,"swayYFreq":0.117647058823529,"swayYAmp":0.897142857142857,"fov":0.918067226890756,"speed":0.378151260504201,"minDist":0.066327731092437,"minStep":0.0001,"maxDist":51.0840336134454,"saturationCap":5}},
+  { name: "Cavern", user: false, params: {"sphereRadius":0.0315126050420168,"spiralTwist":-4.78991596638655,"lateralFreq":0.0336134453781513,"lateralAmp":3.52941176470588,"tunnelRadius":1.18487394957983,"tunnelWarp":3.88235294117647,"blendK":1.5005,"cellOffset":-0.19327731092437,"glowIntensity":0.00142857142857143,"glowBase":0.571428571428571,"colorCycleRate":0.554621848739496,"phaseR":-1.84705882352941,"phaseG":-1.31932773109244,"phaseB":-0.316638655462185,"exposure":0.488193277310924,"swayXFreq":0.184873949579832,"swayXAmp":0,"swayYFreq":0.621848739495798,"swayYAmp":0,"fov":2.38067226890756,"speed":1.51260504201681,"minDist":0.066327731092437,"minStep":0.00513697478991597,"maxDist":46.9243697478992,"saturationCap":5}},
+  { name: "Bulbous", user: false, params: {"sphereRadius":0.023109243697479,"spiralTwist":0.75,"lateralFreq":0.5,"lateralAmp":1,"tunnelRadius":3.70588235294118,"tunnelWarp":2.59663865546219,"blendK":2.83618907563025,"cellOffset":-0.432773109243698,"glowIntensity":0.0008,"glowBase":2,"colorCycleRate":0.25,"phaseR":0,"phaseG":1,"phaseB":2,"exposure":0.8,"swayXFreq":0.3,"swayXAmp":0,"swayYFreq":0.25,"swayYAmp":0,"fov":1,"speed":1,"minDist":0.0022563025210084,"minStep":0.00765546218487395,"maxDist":70.218487394958,"saturationCap":11.5}},
+  { name: "Rainbow Road", user: false, params: {"sphereRadius":0.0735294117647059,"spiralTwist":-0.100840336134454,"lateralFreq":0.5,"lateralAmp":1,"tunnelRadius":1.28571428571429,"tunnelWarp":1,"blendK":0.001,"cellOffset":0.5,"glowIntensity":0.00571428571428571,"glowBase":0.974789915966387,"colorCycleRate":0.302521008403361,"phaseR":-2.37478991596639,"phaseG":1,"phaseB":2,"exposure":0.8,"swayXFreq":0.3,"swayXAmp":0.15,"swayYFreq":0.25,"swayYAmp":0.1,"fov":0.248739495798319,"speed":3.40336134453782,"minDist":0.015,"minStep":0.001,"maxDist":40,"saturationCap":8}},
+  { name: "Orbs", user: false, params: {"sphereRadius":0.0147058823529412,"spiralTwist":-0.252100840336134,"lateralFreq":0.80672268907563,"lateralAmp":0.302521008403361,"tunnelRadius":1,"tunnelWarp":1,"blendK":0.1,"cellOffset":0.5,"glowIntensity":0.00352941176470588,"glowBase":1.14285714285714,"colorCycleRate":0.25,"phaseR":0,"phaseG":1,"phaseB":2,"exposure":0.437857142857143,"swayXFreq":0.3,"swayXAmp":0,"swayYFreq":0.25,"swayYAmp":0,"fov":5.00840336134454,"speed":0.336134453781513,"minDist":0.00979411764705882,"minStep":0.001,"maxDist":96.0084033613445,"saturationCap":8}},
+  { name: "Rave", user: false, params: {"sphereRadius":0.0189075630252101,"spiralTwist":0.75,"lateralFreq":2.31932773109244,"lateralAmp":2.52100840336134,"tunnelRadius":1,"tunnelWarp":1,"blendK":0.1,"cellOffset":0.5,"glowIntensity":0.000672268907563025,"glowBase":2.38655462184874,"colorCycleRate":0.0168067226890756,"phaseR":0,"phaseG":1,"phaseB":2,"exposure":0.8,"swayXFreq":0.403361344537815,"swayXAmp":0.105546218487395,"swayYFreq":2.03361344537815,"swayYAmp":0.1,"fov":1,"speed":3.36134453781513,"minDist":0.015,"minStep":0.0001,"maxDist":40,"saturationCap":8}},
+];
+
+const PARAM_KEYS = Object.keys(PRESETS[0].params);
+
+// ═══════════════════════════════════════════════════════════════
+// USER PRESET SLOTS (QWERTY row — separate from built-in presets)
+// ═══════════════════════════════════════════════════════════════
+const QWERTY_KEYS = 'qwertyuiop';
+const QWERTY_MAP = {}; // char → index
+for (let i = 0; i < QWERTY_KEYS.length; i++) QWERTY_MAP[QWERTY_KEYS[i]] = i;
+
+const USER_PRESETS = new Array(10).fill(null); // null = empty slot
+
+const PARAM_DEFS = {
+  sphereRadius:   { min: 0.0,   max: 0.5,   step: 0.001,  group: 'Geometry',   label: 'Sphere Radius' },
+  spiralTwist:    { min: -6.0,  max: 6.0,   step: 0.001,  group: 'Geometry',   label: 'Spiral Twist' },
+  lateralFreq:    { min: 0.0,   max: 8.0,   step: 0.001,  group: 'Geometry',   label: 'Lateral Freq' },
+  lateralAmp:     { min: 0.0,   max: 6.0,   step: 0.001,  group: 'Geometry',   label: 'Lateral Amp' },
+  tunnelRadius:   { min: 0.0,   max: 6.0,   step: 0.001,  group: 'Geometry',   label: 'Tunnel Radius' },
+  tunnelWarp:     { min: 0.0,   max: 6.0,   step: 0.001,  group: 'Geometry',   label: 'Tunnel Warp' },
+  blendK:         { min: 0.001, max: 3.0,   step: 0.001,  group: 'Geometry',   label: 'Blend Smooth' },
+  cellOffset:     { min: -1.0,  max: 2.0,   step: 0.001,  group: 'Geometry',   label: 'Cell Offset' },
+  glowIntensity:  { min: 0.0,   max: 0.02,  step: 0.00001, group: 'Lighting',  label: 'Glow Intensity',
+                    safeMin: 0.0003 },  // below this, contributions per step are negligible
+  glowBase:       { min: 0.0,   max: 8.0,   step: 0.001,  group: 'Lighting',   label: 'Glow Base',
+                    safeMin: 0.5 },     // below 0.5, cosine term goes net-negative
+  colorCycleRate: { min: 0.0,   max: 4.0,   step: 0.001,  group: 'Lighting',   label: 'Color Cycle Rate' },
+  phaseR:         { min: -6.28, max: 6.28,  step: 0.001,  group: 'Lighting',   label: 'Phase R' },
+  phaseG:         { min: -6.28, max: 6.28,  step: 0.001,  group: 'Lighting',   label: 'Phase G' },
+  phaseB:         { min: -6.28, max: 6.28,  step: 0.001,  group: 'Lighting',   label: 'Phase B' },
+  exposure:       { min: 0.01,  max: 6.0,   step: 0.001,  group: 'Lighting',   label: 'Exposure',
+                    safeMin: 0.2 },     // below this, tonemapping crushes everything to black
+  swayXFreq:      { min: 0.0,   max: 4.0,   step: 0.001,  group: 'Camera',     label: 'Sway X Freq' },
+  swayXAmp:       { min: 0.0,   max: 3.14,  step: 0.001,  group: 'Camera',     label: 'Sway X Amp' },
+  swayYFreq:      { min: 0.0,   max: 4.0,   step: 0.001,  group: 'Camera',     label: 'Sway Y Freq' },
+  swayYAmp:       { min: 0.0,   max: 3.14,  step: 0.001,  group: 'Camera',     label: 'Sway Y Amp' },
+  fov:            { min: 0.1,   max: 6.0,   step: 0.001,  group: 'Camera',     label: 'FOV' },
+  speed:          { min: -5.0,  max: 5.0,   step: 0.001,  group: 'Camera',     label: 'Speed' },
+  minDist:        { min: 0.001, max: 0.3,   step: 0.0001, group: 'Raymarcher', label: 'Min Dist (clamp)' },
+  minStep:        { min: 0.0001,max: 0.1,   step: 0.0001, group: 'Raymarcher', label: 'Min Step' },
+  maxDist:        { min: 2.0,   max: 200.0, step: 0.1,    group: 'Raymarcher', label: 'Max Dist',
+                    safeMin: 15.0 },    // below ~15, ray can't see enough tunnel to accumulate light
+  saturationCap:  { min: 0.5,   max: 60.0,  step: 0.01,   group: 'Raymarcher', label: 'Saturation Cap',
+                    safeMin: 3.0 },     // below ~3, loop terminates before meaningful accumulation
+};
+
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+let currentPresetIndex = 1;
+const liveParams = { ...PRESETS[1].params };
+
+// Phase accumulators
+let phaseZ = 0.37, phaseSwayX = 0, phaseSwayY = 0, phaseLateral = 0.37;
+// Compensation phases
+let phaseSpiralComp = 0, phaseColorComp = 0, phaseLateralComp = 0;
+let prevSpiralTwist = PRESETS[1].params.spiralTwist;
+let prevColorCycleRate = PRESETS[1].params.colorCycleRate;
+let prevLateralFreq = PRESETS[1].params.lateralFreq;
+
+// ═══════════════════════════════════════════════════════════════
+// EVOLVE STATE
+// ═══════════════════════════════════════════════════════════════
+let evolveEnabled = true;
+let evolvePace = 0.125253013504124;
+let evolveDrift = 0.111718679193982;
+let evolveBlend = 0.743909549560436;
+
+function paceToInterval(pace) {
+  // 0 → 30s, 0.5 → 6s, 1.0 → 1.5s (exponential)
+  return 1.5 + 28.5 * Math.pow(1 - pace, 2.5);
+}
+
+function driftToRadius(drift) {
+  // 0 → 0.02 (2% of range), 0.5 → 0.15, 1.0 → 0.6 (60% of range)
+  return 0.02 + 0.58 * Math.pow(drift, 1.5);
+}
+
+// ── Perceptual brightness preservation ──
+// Actual rendered brightness depends on:
+//   amplitude per step:  glowIntensity × glowBase × exposure
+//   how many steps run:  gated by saturationCap (early termination) and maxDist (ray reach)
+// We estimate all of these and preserve the combined product.
+
+const BRIGHTNESS_KEYS = ['glowIntensity', 'glowBase', 'exposure'];
+
+function estimateBrightness(p) {
+  // Amplitude: how much light each step contributes
+  const amplitude = p.glowIntensity * Math.max(p.glowBase, 0.01) * p.exposure;
+
+  // Loop gating: what fraction of the full 50-step loop actually runs?
+  // saturationCap: lower cap = fewer steps before bail. Normalize against 8 (typical)
+  const capFactor = Math.min(p.saturationCap / 8, 1.0);
+  // maxDist: shorter reach = fewer geometry encounters. Normalize against 40 (typical)
+  const distFactor = Math.min(p.maxDist / 40, 1.0);
+
+  return amplitude * capFactor * distFactor;
+}
+
+function generateEvolveTarget() {
+  const radius = driftToRadius(evolveDrift);
+  const target = {};
+
+  // Step 1: perturb all params, clamping to safe ranges for evolution
+  for (const k of PARAM_KEYS) {
+    const def = PARAM_DEFS[k];
+    const range = def.max - def.min;
+    const maxDelta = range * radius;
+    const delta = (Math.random() * 2 - 1) * maxDelta;
+    const lo = def.safeMin !== undefined ? def.safeMin : def.min;
+    const hi = def.safeMax !== undefined ? def.safeMax : def.max;
+    target[k] = Math.max(lo, Math.min(hi, liveParams[k] + delta));
+  }
+
+  // Step 2: measure brightness ratio
+  const currentB = estimateBrightness(liveParams);
+  const targetB = estimateBrightness(target);
+
+  if (targetB < 1e-8 || currentB < 1e-8) return target;
+
+  // Step 3: compute correction factor needed (±10% band)
+  const ratio = targetB / currentB;
+  const maxDrift = 1.1;
+  const minDrift = 0.9;
+  let correctionNeeded = 1.0;
+
+  if (ratio < minDrift) {
+    correctionNeeded = minDrift / ratio;
+  } else if (ratio > maxDrift) {
+    correctionNeeded = maxDrift / ratio;
+  } else {
+    return target;
+  }
+
+  // Step 4: distribute correction across amplitude params + loop-gating params
+  // Amplitude params (3): glowIntensity, glowBase, exposure — full weight
+  // Loop-gating params (2): saturationCap, maxDist — half weight each
+  // Total shares: 3 + 0.5 + 0.5 = 4
+  const ampExp = 1 / 4;
+  const gateExp = 0.5 / 4;
+
+  const ampFactor = Math.pow(correctionNeeded, ampExp);
+  const gateFactor = Math.pow(correctionNeeded, gateExp);
+
+  for (const k of BRIGHTNESS_KEYS) {
+    const def = PARAM_DEFS[k];
+    const lo = def.safeMin !== undefined ? def.safeMin : def.min;
+    const hi = def.safeMax !== undefined ? def.safeMax : def.max;
+    target[k] = Math.max(lo, Math.min(hi, target[k] * ampFactor));
+  }
+
+  // Correct loop-gating params
+  const satDef = PARAM_DEFS.saturationCap;
+  target.saturationCap = Math.max(satDef.safeMin || satDef.min,
+    Math.min(satDef.max, target.saturationCap * gateFactor));
+
+  const mdDef = PARAM_DEFS.maxDist;
+  target.maxDist = Math.max(mdDef.safeMin || mdDef.min,
+    Math.min(mdDef.max, target.maxDist * gateFactor));
+
+  return target;
+}
+
+// Evolve state machine: 'idle' → 'morphing' → 'resting' → 'morphing' ...
+let evolvePhase = 'idle'; // 'idle', 'morphing', 'resting'
+let evolveRestTimer = 0;
+
+function tickEvolve(dt) {
+  if (!evolveEnabled) {
+    if (evolvePhase !== 'idle') evolvePhase = 'idle';
+    return;
+  }
+
+  if (evolvePhase === 'idle') {
+    // First tick after enable — start morphing immediately
+    startEvolveMorph();
+    return;
+  }
+
+  if (evolvePhase === 'morphing') {
+    // If something external cleared our spring target, the morph was interrupted — move on
+    if (!springTarget) {
+      evolveMorphTarget = null;
+      const interval = paceToInterval(evolvePace);
+      const restTime = interval * (1 - evolveBlend);
+      if (restTime < 0.1) {
+        startEvolveMorph();
+      } else {
+        evolvePhase = 'resting';
+        evolveRestTimer = restTime * (0.7 + Math.random() * 0.6);
+      }
+      return;
+    }
+
+    // Spring is driving the morph — detect completion by convergence
+    let maxNormDisp = 0;
+    let worstKey = '';
+    if (evolveMorphTarget) {
+      for (const k of PARAM_KEYS) {
+        const def = PARAM_DEFS[k];
+        const range = def.max - def.min;
+        if (range > 0) {
+          const nd = Math.abs(liveParams[k] - evolveMorphTarget[k]) / range;
+          if (nd > maxNormDisp) { maxNormDisp = nd; worstKey = k; }
+        }
+      }
+    }
+    // 0.1% of range — close enough, snap the rest
+    const settled = maxNormDisp < 0.001;
+    if (settled) {
+      evolveMorphTarget = null;
+      springTarget = null;
+      // Transition finished — enter rest phase
+      const interval = paceToInterval(evolvePace);
+      const restTime = interval * (1 - evolveBlend);
+      if (restTime < 0.1) {
+        // Blend ≈ 1.0, no rest — immediately start next morph
+        startEvolveMorph();
+      } else {
+        evolvePhase = 'resting';
+        evolveRestTimer = restTime * (0.7 + Math.random() * 0.6);
+      }
+    } else {
+      const progress = Math.max(0, 1 - maxNormDisp / 0.3);  // 0.3 norm disp ≈ 0%, 0 = 100%
+      document.getElementById('evolve-status').textContent = `morphing ${(progress * 100).toFixed(0)}%`;
+    }
+    return;
+  }
+
+  if (evolvePhase === 'resting') {
+    evolveRestTimer -= dt;
+    document.getElementById('evolve-status').textContent = `resting ${Math.max(0, evolveRestTimer).toFixed(1)}s`;
+    if (evolveRestTimer <= 0) {
+      startEvolveMorph();
+    }
+    return;
+  }
+}
+
+function startEvolveMorph() {
+  const target = generateEvolveTarget();
+  springTarget = target;
+  evolveMorphTarget = target;  // remember what we're morphing toward
+
+  evolvePhase = 'morphing';
+  document.getElementById('preset-name').textContent = 'Evolving...';
+  presetChips.forEach(c => c.classList.remove('active'));
+}
+let evolveMorphTarget = null;
+
+// ═══════════════════════════════════════════════════════════════
+// WEBGL
+// ═══════════════════════════════════════════════════════════════
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+const isWebGL2 = gl instanceof WebGL2RenderingContext;
+
+let resolutionScale = 0.25;
+const RES_STEPS = [0.01, 0.02, 0.05, 0.1, 0.15, 0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.5, 2.0];
+let resStepIndex = 5; // starts at 0.25
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio, 2) * resolutionScale;
+  canvas.width = Math.max(1, Math.floor(window.innerWidth * dpr));
+  canvas.height = Math.max(1, Math.floor(window.innerHeight * dpr));
+  gl.viewport(0, 0, canvas.width, canvas.height);
+}
+
+function updateResUI() {
+  document.getElementById('res-value').textContent = Math.round(RES_STEPS[resStepIndex] * 100) + '%';
+}
+
+function resUp() {
+  if (resStepIndex < RES_STEPS.length - 1) {
+    resStepIndex++;
+    resolutionScale = RES_STEPS[resStepIndex];
+    updateResUI();
+    resize();
+  }
+}
+
+function resDown() {
+  if (resStepIndex > 0) {
+    resStepIndex--;
+    resolutionScale = RES_STEPS[resStepIndex];
+    updateResUI();
+    resize();
+  }
+}
+window.addEventListener('resize', resize);
+resize();
+
+function buildFS(v2) {
+  const pre = v2 ? '#version 300 es\nprecision highp float;\n' : 'precision highp float;\n';
+  const unis = [
+    'uniform vec2 u_resolution;',
+    'uniform float u_phaseZ;', 'uniform float u_phaseSwayX;', 'uniform float u_phaseSwayY;',
+    'uniform float u_phaseLateral;', 'uniform float u_phaseSpiralComp;',
+    'uniform float u_phaseColorComp;', 'uniform float u_phaseLateralComp;',
+    ...PARAM_KEYS.filter(k => !['speed','swayXFreq','swayYFreq'].includes(k))
+      .map(k => `uniform float u_${k};`),
+  ].join('\n');
+  const outD = v2 ? 'out vec4 fragColor;' : '';
+  const fO = v2 ? 'fragColor' : 'gl_FragColor';
+  return `${pre}
+${unis}
+${outD}
+mat2 R(float a){float s=sin(a),c=cos(a);return mat2(c,-s,s,c);}
+float smin(float a,float b,float k){float h=clamp(.5+.5*(a-b)/k,0.,1.);return mix(a,b,h)-k*h*(1.-h);}
+void main(){
+  vec2 uv=(gl_FragCoord.xy-.5*u_resolution)/u_resolution.y;
+  float T=u_phaseZ;
+  vec3 ro=vec3(0,0,T);
+  vec3 rd=normalize(vec3(uv,u_fov));
+  rd.xz*=R(sin(u_phaseSwayX)*u_swayXAmp);
+  rd.yz*=R(cos(u_phaseSwayY)*u_swayYAmp);
+  vec4 O=vec4(0);
+  float t=0.;
+  for(float i=0.;i<50.;i++){
+    vec3 p=ro+rd*t;
+    p.z+=T;
+    float d=100.;
+    for(float j=-3.;j<3.;j++){
+      vec3 q=p;
+      q.z=fract(q.z)-u_cellOffset-j;
+      float k=floor(p.z)+j;
+      q.xy*=R(k*u_spiralTwist+u_phaseSpiralComp);
+      q.x+=sin((k-u_phaseLateral)*u_lateralFreq+u_phaseLateralComp)*u_lateralAmp;
+      float a=length(q)-u_sphereRadius;
+      d=min(d,a);
+      O+=u_glowIntensity*(u_glowBase+cos(p.z*u_colorCycleRate+u_phaseColorComp+T+vec4(u_phaseR,u_phaseG,u_phaseB,0)))/max(a,u_minDist);
+    }
+    float tun=u_tunnelRadius+sin(p.x)*cos(p.y)*cos(p.y+p.z)*u_tunnelWarp-length(p.xy);
+    d=smin(d,tun,u_blendK);
+    t+=max(d,u_minStep);
+    if(t>u_maxDist||O.r>u_saturationCap)break;
+  }
+  O=1.-exp(-O*u_exposure);
+  O.a=1.;
+  ${fO}=O;
+}`;
+}
+
+const vsSource = isWebGL2
+  ? '#version 300 es\nin vec4 a_position;\nvoid main(){gl_Position=a_position;}'
+  : 'attribute vec4 a_position;\nvoid main(){gl_Position=a_position;}';
+
+function createShader(type, src) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(s)); gl.deleteShader(s); return null; }
+  return s;
+}
+function createProgram(vs, fs) {
+  const v = createShader(gl.VERTEX_SHADER, vs), f = createShader(gl.FRAGMENT_SHADER, fs);
+  if (!v || !f) return null;
+  const p = gl.createProgram(); gl.attachShader(p, v); gl.attachShader(p, f); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { console.error(gl.getProgramInfoLog(p)); return null; }
+  return p;
+}
+
+let program = createProgram(vsSource, buildFS(isWebGL2));
+if (!program && isWebGL2) program = createProgram(vsSource, buildFS(false));
+gl.useProgram(program);
+
+const posLoc = gl.getAttribLocation(program, 'a_position');
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(posLoc);
+gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+const resLoc = gl.getUniformLocation(program, 'u_resolution');
+const phaseLocs = {
+  Z: gl.getUniformLocation(program, 'u_phaseZ'),
+  SwayX: gl.getUniformLocation(program, 'u_phaseSwayX'),
+  SwayY: gl.getUniformLocation(program, 'u_phaseSwayY'),
+  Lateral: gl.getUniformLocation(program, 'u_phaseLateral'),
+  SpiralComp: gl.getUniformLocation(program, 'u_phaseSpiralComp'),
+  ColorComp: gl.getUniformLocation(program, 'u_phaseColorComp'),
+  LateralComp: gl.getUniformLocation(program, 'u_phaseLateralComp'),
+};
+const paramLocs = {};
+for (const k of PARAM_KEYS) {
+  if (['speed','swayXFreq','swayYFreq'].includes(k)) continue;
+  paramLocs[k] = gl.getUniformLocation(program, `u_${k}`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UI
+// ═══════════════════════════════════════════════════════════════
+const toggle = document.getElementById('panel-toggle');
+const panel = document.getElementById('panel');
+toggle.addEventListener('click', () => { panel.classList.toggle('open'); toggle.classList.toggle('open'); });
+
+// Preset chips
+const presetGrid = document.getElementById('preset-grid');
+let presetChips = [];
+
+function rebuildPresetChips() {
+  presetGrid.innerHTML = '';
+  presetChips = [];
+  PRESETS.forEach((preset, i) => {
+    const chip = document.createElement('button');
+    chip.className = 'preset-chip' + (preset.user ? ' user-preset' : '') + (i === currentPresetIndex ? ' active' : '');
+    chip.textContent = preset.name;
+    chip.addEventListener('click', () => loadPreset(i));
+    presetGrid.appendChild(chip);
+    presetChips.push(chip);
+  });
+}
+rebuildPresetChips();
+
+// User preset chips (QWERTY row)
+const userPresetGrid = document.getElementById('user-preset-grid');
+let userPresetChips = [];
+
+function rebuildUserPresetChips() {
+  userPresetGrid.innerHTML = '';
+  userPresetChips = [];
+  for (let i = 0; i < 10; i++) {
+    const chip = document.createElement('button');
+    const key = QWERTY_KEYS[i].toUpperCase();
+    const preset = USER_PRESETS[i];
+    chip.className = 'preset-chip user-preset' + (preset ? '' : ' empty-slot');
+    chip.innerHTML = '<span style="opacity:0.4;font-size:9px;margin-right:2px">' + key + '</span>' + (preset ? preset.name : '\u2014');
+    chip.title = preset ? 'Hold ' + key + ' to blend \u00b7 S+' + key + ' to overwrite' : 'S+' + key + ' to save here';
+    if (preset) {
+      const idx = i;
+      chip.addEventListener('click', () => {
+        springTarget = { ...USER_PRESETS[idx].params };
+        document.getElementById('preset-name').textContent = USER_PRESETS[idx].name;
+        presetChips.forEach(c => c.classList.remove('active'));
+        userPresetChips.forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        if (evolveEnabled) {
+          evolvePhase = 'resting';
+          const interval = paceToInterval(evolvePace);
+          evolveRestTimer = interval * (1 - evolveBlend) * (0.7 + Math.random() * 0.6);
+        }
+        clearTimeout(loadPreset._clearTimer);
+        loadPreset._clearTimer = setTimeout(() => { if (!anyHotkeyHeld()) springTarget = null; }, 1500);
+      });
+    }
+    userPresetGrid.appendChild(chip);
+    userPresetChips.push(chip);
+  }
+}
+rebuildUserPresetChips();
+
+document.getElementById('prev-preset').addEventListener('click', () => {
+  loadPreset((currentPresetIndex - 1 + PRESETS.length) % PRESETS.length);
+});
+document.getElementById('next-preset').addEventListener('click', () => {
+  loadPreset((currentPresetIndex + 1) % PRESETS.length);
+});
+document.getElementById('random-preset').addEventListener('click', () => {
+  let i; do { i = Math.floor(Math.random() * PRESETS.length); } while (i === currentPresetIndex && PRESETS.length > 1);
+  loadPreset(i);
+});
+
+// Evolve controls
+const evolveCheckbox = document.getElementById('evolve-enabled');
+const evolveLabel = document.getElementById('evolve-label');
+evolveCheckbox.addEventListener('change', () => {
+  evolveEnabled = evolveCheckbox.checked;
+  evolveLabel.textContent = evolveEnabled ? 'On' : 'Off';
+  if (evolveEnabled) evolvePhase = 'idle'; // will trigger first morph on next tick
+  else { evolvePhase = 'idle'; document.getElementById('evolve-status').textContent = ''; }
+});
+
+document.getElementById('pace-slider').addEventListener('input', (e) => {
+  evolvePace = parseFloat(e.target.value);
+  const labels = ['frozen','slow','moderate','lively','rapid'];
+  document.getElementById('pace-value').textContent = labels[Math.min(4, Math.floor(evolvePace * 5))];
+});
+document.getElementById('drift-slider').addEventListener('input', (e) => {
+  evolveDrift = parseFloat(e.target.value);
+  const labels = ['subtle','gentle','moderate','bold','wild'];
+  document.getElementById('drift-value').textContent = labels[Math.min(4, Math.floor(evolveDrift * 5))];
+});
+document.getElementById('blend-slider').addEventListener('input', (e) => {
+  evolveBlend = parseFloat(e.target.value);
+  const labels = ['quick snap','short morph','balanced','long morph','always flowing'];
+  const idx = Math.min(4, Math.floor((evolveBlend - 0.05) / 0.95 * 5));
+  document.getElementById('blend-value').textContent = labels[idx];
+});
+
+// Param sliders
+const paramGroupsEl = document.getElementById('param-groups');
+const groups = {};
+for (const [k, def] of Object.entries(PARAM_DEFS)) {
+  if (!groups[def.group]) groups[def.group] = [];
+  groups[def.group].push(k);
+}
+const valueDisplays = {};
+const sliderElements = {};
+
+function formatVal(v, step) {
+  if (step < 0.001) return v.toFixed(4);
+  if (step < 0.01) return v.toFixed(3);
+  if (step < 0.1) return v.toFixed(2);
+  return v.toFixed(1);
+}
+
+for (const [groupName, keys] of Object.entries(groups)) {
+  const groupEl = document.createElement('div');
+  groupEl.className = 'group';
+  const header = document.createElement('div');
+  header.className = 'group-header';
+  header.innerHTML = `<span class="group-title">${groupName}</span><span class="group-chevron">&#9654;</span>`;
+  header.addEventListener('click', () => groupEl.classList.toggle('open'));
+  groupEl.appendChild(header);
+  const body = document.createElement('div');
+  body.className = 'group-body';
+  for (const k of keys) {
+    const def = PARAM_DEFS[k];
+    const cg = document.createElement('div');
+    cg.className = 'control-group';
+    const lbl = document.createElement('label');
+    const nameSpan = document.createElement('span'); nameSpan.textContent = def.label;
+    const valSpan = document.createElement('span'); valSpan.className = 'value-display';
+    valSpan.textContent = formatVal(liveParams[k], def.step);
+    valueDisplays[k] = valSpan;
+    lbl.appendChild(nameSpan); lbl.appendChild(valSpan);
+    const slider = document.createElement('input');
+    slider.type = 'range'; slider.min = def.min; slider.max = def.max;
+    slider.step = 'any'; slider.value = liveParams[k];
+    slider.addEventListener('input', (e) => {
+      liveParams[k] = parseFloat(e.target.value);
+      valueDisplays[k].textContent = formatVal(liveParams[k], def.step);
+    });
+    sliderElements[k] = slider;
+    cg.appendChild(lbl); cg.appendChild(slider);
+    body.appendChild(cg);
+  }
+  groupEl.appendChild(body);
+  paramGroupsEl.appendChild(groupEl);
+}
+
+// Copy
+document.getElementById('copy-btn').addEventListener('click', function() {
+  const snap = {};
+  for (const k of PARAM_KEYS) snap[k] = liveParams[k];
+  snap._evolve = {
+    enabled: evolveEnabled,
+    pace: evolvePace,
+    drift: evolveDrift,
+    blend: evolveBlend,
+  };
+  const text = JSON.stringify(snap, null, 2);
+  const btn = this;
+  // Try clipboard API first, fall back to textarea trick
+  const fallbackCopy = () => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      btn.textContent = 'Copied';
+    } catch(e) {
+      btn.textContent = 'Failed';
+    }
+    document.body.removeChild(ta);
+    setTimeout(() => btn.textContent = 'Copy Params', 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = 'Copied';
+      setTimeout(() => btn.textContent = 'Copy Params', 1200);
+    }).catch(fallbackCopy);
+  } else {
+    fallbackCopy();
+  }
+});
+
+// Reset
+document.getElementById('reset-btn').addEventListener('click', () => loadPreset(currentPresetIndex));
+document.getElementById('res-up').addEventListener('click', resUp);
+document.getElementById('res-down').addEventListener('click', resDown);
+
+// Save
+const saveDialog = document.getElementById('save-dialog');
+const saveNameInput = document.getElementById('save-name');
+document.getElementById('save-btn').addEventListener('click', () => {
+  saveDialog.classList.toggle('open');
+  if (saveDialog.classList.contains('open')) {
+    saveNameInput.value = '';
+    saveNameInput.focus();
+  }
+});
+document.getElementById('save-cancel').addEventListener('click', () => saveDialog.classList.remove('open'));
+document.getElementById('save-confirm').addEventListener('click', savePreset);
+saveNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') savePreset(); });
+
+function savePreset() {
+  const name = saveNameInput.value.trim();
+  if (!name) return;
+  const snap = {}; for (const k of PARAM_KEYS) snap[k] = liveParams[k];
+  PRESETS.push({ name, user: true, params: snap });
+  currentPresetIndex = PRESETS.length - 1;
+  document.getElementById('preset-name').textContent = name;
+  rebuildPresetChips();
+  saveDialog.classList.remove('open');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INTERPOLATION (shared by presets and evolve)
+// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// INTERPOLATION — velocity-based spring-damper
+// ═══════════════════════════════════════════════════════════════
+// Instead of from/to/duration, we track per-param velocity.
+// Hotkeys set a target attractor; the system accelerates toward it.
+// When targets change, existing velocity carries (no snapping).
+// On release, coast with friction.
+
+let springTarget = null;   // null = no attractor (coast), or {param: value, ...}
+let paramVelocity = {};    // per-param velocity in units/second
+for (const k of PARAM_KEYS) paramVelocity[k] = 0;
+
+// Spring constants — modulated by evolvePace so hotkeys breathe with the system
+// Exponential curve: most of the pace range is slow, snappiness only at the top
+// Damping is always critically damped (2*sqrt(stiffness)) — no overshoot
+function springStiffness() { return 0.1 + 23.9 * Math.pow(evolvePace, 2.5); }
+function springDamping()   { return 2.0 * Math.sqrt(springStiffness()); }  // critical damping
+function coastDamping()    { return 0.1 + 4.9 * Math.pow(evolvePace, 2.5); }
+const VELOCITY_EPSILON = 0.0001;
+const POSITION_EPSILON = 0.00005;
+
+function tickSpring(dt) {
+  let anyMotion = false;
+  const stiff = springStiffness();
+  const damp = springDamping();
+  const coast = coastDamping();
+
+  for (const k of PARAM_KEYS) {
+    if (springTarget) {
+      // Spring toward target: F = -stiffness * (pos - target) - damping * vel
+      const displacement = liveParams[k] - springTarget[k];
+      const springForce = -stiff * displacement;
+      const dampForce = -damp * paramVelocity[k];
+      paramVelocity[k] += (springForce + dampForce) * dt;
+    } else {
+      // No target — just coast with friction
+      paramVelocity[k] *= Math.exp(-coast * dt);
+    }
+
+    liveParams[k] += paramVelocity[k] * dt;
+
+    // Clamp to param range
+    const def = PARAM_DEFS[k];
+    if (def) liveParams[k] = Math.max(def.min, Math.min(def.max, liveParams[k]));
+
+    if (Math.abs(paramVelocity[k]) > VELOCITY_EPSILON) anyMotion = true;
+    else if (springTarget && Math.abs(liveParams[k] - springTarget[k]) < POSITION_EPSILON) {
+      liveParams[k] = springTarget[k];
+      paramVelocity[k] = 0;
+    }
+  }
+
+  if (anyMotion || springTarget) syncSliders();
+}
+
+// Legacy interp removed — evolve now uses the spring system
+
+function loadPreset(index) {
+  // Use spring system for smooth transition
+  springTarget = { ...PRESETS[index].params };
+  currentPresetIndex = index;
+  document.getElementById('preset-name').textContent = PRESETS[index].name;
+  presetChips.forEach((c, i) => c.classList.toggle('active', i === index));
+  // After spring settles, clear the target and let evolve take over
+  if (evolveEnabled) {
+    evolvePhase = 'resting';
+    const interval = paceToInterval(evolvePace);
+    evolveRestTimer = interval * (1 - evolveBlend) * (0.7 + Math.random() * 0.6);
+  }
+  // Clear target after a delay so spring can settle, then evolve resumes
+  clearTimeout(loadPreset._clearTimer);
+  loadPreset._clearTimer = setTimeout(() => {
+    if (!anyHotkeyHeld()) springTarget = null;
+  }, 1500);
+}
+
+function syncSliders() {
+  for (const k of PARAM_KEYS) {
+    sliderElements[k].value = liveParams[k];
+    valueDisplays[k].textContent = formatVal(liveParams[k], PARAM_DEFS[k].step);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HOTKEYS
+// ═══════════════════════════════════════════════════════════════
+// 1-9,0 → push toward preset attractors while held (multi-key blends, shift = 10x)
+// C → smoothly reduce camera sway while held
+// Up/Down → drift intensity
+// Left/Right → pace
+
+const heldPresetKeys = new Set();   // number keys → PRESETS indices
+const heldUserKeys = new Set();     // QWERTY keys → USER_PRESETS indices
+let preHotkeyEvolvePhase = null;
+let cKeyHeld = false;
+let shiftHeld = false;
+let sKeyHeld = false;
+
+// C key uses the spring system — no separate damping
+const C_SWAY_KEYS = ['swayXAmp', 'swayYAmp', 'swayXFreq', 'swayYFreq'];
+
+const ARROW_NUDGE = 0.03;
+const CAMERA_DAMPEN_RATE = 0.0872665; // 5°/s in radians
+
+function syncPaceUI() {
+  const labels = ['frozen','slow','moderate','lively','rapid'];
+  document.getElementById('pace-value').textContent = labels[Math.min(4, Math.floor(evolvePace * 5))];
+  document.getElementById('pace-slider').value = evolvePace;
+}
+function syncDriftUI() {
+  const labels = ['subtle','gentle','moderate','bold','wild'];
+  document.getElementById('drift-value').textContent = labels[Math.min(4, Math.floor(evolveDrift * 5))];
+  document.getElementById('drift-slider').value = evolveDrift;
+}
+
+function keyToPresetIndex(key) {
+  if (key >= '1' && key <= '9') return parseInt(key) - 1;
+  if (key === '0') return 9;
+  return -1;
+}
+
+// Compute blended target from all held preset keys (number + QWERTY, averaged)
+function computeBlendedTarget() {
+  const sources = [];
+  for (const idx of heldPresetKeys) sources.push(PRESETS[idx].params);
+  for (const idx of heldUserKeys) {
+    if (USER_PRESETS[idx]) sources.push(USER_PRESETS[idx].params);
+  }
+  if (sources.length === 0) return null;
+  const target = {};
+  for (const k of PARAM_KEYS) target[k] = 0;
+  for (const p of sources) {
+    for (const k of PARAM_KEYS) target[k] += p[k];
+  }
+  for (const k of PARAM_KEYS) target[k] /= sources.length;
+  return target;
+}
+
+function anyHotkeyHeld() {
+  return heldPresetKeys.size > 0 || heldUserKeys.size > 0;
+}
+
+function updatePresetTarget() {
+  const blended = computeBlendedTarget();
+  if (!blended) return;
+  // Apply C key modifier — zero sway in target
+  if (cKeyHeld) {
+    for (const k of C_SWAY_KEYS) blended[k] = 0;
+  }
+  springTarget = blended;
+
+  // Build display name from all held sources
+  const names = [];
+  for (const i of heldPresetKeys) names.push(PRESETS[i].name);
+  for (const i of heldUserKeys) {
+    if (USER_PRESETS[i]) names.push(USER_PRESETS[i].name);
+  }
+  document.getElementById('preset-name').textContent = '\u2192 ' + names.join(' + ');
+  presetChips.forEach((c, i) => c.classList.toggle('active', heldPresetKeys.has(i)));
+  userPresetChips.forEach((c, i) => c.classList.toggle('active', heldUserKeys.has(i)));
+}
+
+// When C key state changes, refresh the spring target
+function updateCKeyTarget() {
+  if (anyHotkeyHeld()) {
+    // Hotkeys active — just re-derive the target with/without sway zeroing
+    updatePresetTarget();
+  } else if (cKeyHeld) {
+    // C alone — create a target that's current values but sway zeroed
+    const target = {};
+    for (const k of PARAM_KEYS) target[k] = liveParams[k];
+    for (const k of C_SWAY_KEYS) target[k] = 0;
+    springTarget = target;
+  } else {
+    // C released, no hotkeys — remove attractor, coast
+    springTarget = null;
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'Shift') { shiftHeld = true; return; }
+
+  // S key — enter save mode
+  if (e.key === 's' || e.key === 'S') {
+    sKeyHeld = true;
+    return;
+  }
+
+  // QWERTY row
+  const userIdx = QWERTY_MAP[e.key.toLowerCase()];
+  if (userIdx !== undefined) {
+    // S + QWERTY → save current params to that user slot
+    if (sKeyHeld) {
+      const snap = {};
+      for (const k of PARAM_KEYS) snap[k] = liveParams[k];
+      const slotLabel = QWERTY_KEYS[userIdx].toUpperCase();
+      const name = 'User ' + slotLabel;
+      USER_PRESETS[userIdx] = { name, params: snap };
+      // Flash confirmation
+      const nameEl = document.getElementById('preset-name');
+      nameEl.textContent = '\u2713 Saved \u2192 ' + slotLabel;
+      nameEl.style.color = 'var(--anthropic-green)';
+      setTimeout(() => { nameEl.style.color = ''; if (!anyHotkeyHeld()) nameEl.textContent = evolveEnabled ? 'Evolving...' : '(custom)'; }, 1200);
+      rebuildUserPresetChips();
+      return;
+    }
+    // Hold QWERTY → spring toward user preset (same logic as number keys)
+    if (USER_PRESETS[userIdx] && !heldUserKeys.has(userIdx)) {
+      if (!anyHotkeyHeld()) {
+        preHotkeyEvolvePhase = evolvePhase;
+        evolvePhase = 'idle';
+        evolveMorphTarget = null;
+      }
+      heldUserKeys.add(userIdx);
+      updatePresetTarget();
+      return;
+    }
+  }
+
+  const presetIdx = keyToPresetIndex(e.key);
+
+  if (presetIdx >= 0 && presetIdx < PRESETS.length && !heldPresetKeys.has(presetIdx)) {
+    if (!anyHotkeyHeld()) {
+      preHotkeyEvolvePhase = evolvePhase;
+      evolvePhase = 'idle';
+      evolveMorphTarget = null;
+    }
+    heldPresetKeys.add(presetIdx);
+    updatePresetTarget();
+    return;
+  }
+
+  if (e.key === 'c' || e.key === 'C') {
+    cKeyHeld = true;
+    updateCKeyTarget();
+    return;
+  }
+
+  if (e.key === 'v' || e.key === 'V') {
+    evolveEnabled = !evolveEnabled;
+    evolveCheckbox.checked = evolveEnabled;
+    evolveLabel.textContent = evolveEnabled ? 'On' : 'Off';
+    if (evolveEnabled) {
+      evolvePhase = 'idle';
+      document.getElementById('preset-name').textContent = 'Evolving...';
+    } else {
+      evolvePhase = 'idle';
+      document.getElementById('evolve-status').textContent = '';
+      document.getElementById('preset-name').textContent = '(custom)';
+    }
+    return;
+  }
+
+  if (e.key === 'ArrowRight') { evolvePace = Math.min(1, evolvePace + ARROW_NUDGE); syncPaceUI(); e.preventDefault(); return; }
+  if (e.key === 'ArrowLeft') { evolvePace = Math.max(0, evolvePace - ARROW_NUDGE); syncPaceUI(); e.preventDefault(); return; }
+  if (e.key === 'ArrowUp') { evolveDrift = Math.min(1, evolveDrift + ARROW_NUDGE); syncDriftUI(); e.preventDefault(); return; }
+  if (e.key === 'ArrowDown') { evolveDrift = Math.max(0, evolveDrift - ARROW_NUDGE); syncDriftUI(); e.preventDefault(); return; }
+
+  if (e.key === '=' || e.key === '+') { resUp(); return; }
+  if (e.key === '-' || e.key === '_') { resDown(); return; }
+});
+
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'Shift') { shiftHeld = false; return; }
+  if (e.key === 's' || e.key === 'S') { sKeyHeld = false; return; }
+
+  // QWERTY release
+  const userIdx = QWERTY_MAP[e.key.toLowerCase()];
+  if (userIdx !== undefined && heldUserKeys.has(userIdx)) {
+    heldUserKeys.delete(userIdx);
+
+    if (anyHotkeyHeld()) {
+      updatePresetTarget();
+    } else {
+      updateCKeyTarget();
+      if (evolveEnabled) {
+        evolvePhase = 'idle';
+        document.getElementById('preset-name').textContent = 'Evolving...';
+      } else {
+        document.getElementById('preset-name').textContent = '(custom)';
+      }
+      presetChips.forEach(c => c.classList.remove('active'));
+      userPresetChips.forEach(c => c.classList.remove('active'));
+    }
+    return;
+  }
+
+  const presetIdx = keyToPresetIndex(e.key);
+
+  if (presetIdx >= 0 && heldPresetKeys.has(presetIdx)) {
+    heldPresetKeys.delete(presetIdx);
+
+    if (anyHotkeyHeld()) {
+      // Other keys still held — redirect spring to new blend (velocity carries)
+      updatePresetTarget();
+    } else {
+      // All preset keys released — defer to C key state
+      updateCKeyTarget();  // sets target with sway=0 if C held, or null if not
+      if (evolveEnabled) {
+        evolvePhase = 'idle';
+        document.getElementById('preset-name').textContent = 'Evolving...';
+      } else {
+        document.getElementById('preset-name').textContent = '(custom)';
+      }
+      presetChips.forEach(c => c.classList.remove('active'));
+      userPresetChips.forEach(c => c.classList.remove('active'));
+    }
+    return;
+  }
+
+  if (e.key === 'c' || e.key === 'C') {
+    cKeyHeld = false;
+    updateCKeyTarget();
+    return;
+  }
+});
+
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER LOOP
+// ═══════════════════════════════════════════════════════════════
+let lastFrame = performance.now();
+let startupGrace = 3.0;
+
+function isSpringActive() {
+  if (springTarget) return true;
+  // Coasting — check if any param still has meaningful velocity
+  for (const k of PARAM_KEYS) {
+    if (Math.abs(paramVelocity[k]) > VELOCITY_EPSILON) return true;
+  }
+  return false;
+}
+
+function render(now) {
+  const dt = Math.min((now - lastFrame) / 1000, 0.1);
+  lastFrame = now;
+
+  // 1. Spring system (hotkeys + evolve + loadPreset)
+  tickSpring(dt);
+
+  // 2. Evolve state machine (generates new spring targets)
+  // Runs when no hotkeys held; spring-busy check is internal now
+  if (startupGrace > 0) startupGrace -= dt;
+  else if (!anyHotkeyHeld()) tickEvolve(dt);
+
+  // 5. Accumulate phases
+  phaseZ       += dt * liveParams.speed;
+  phaseSwayX   += dt * liveParams.swayXFreq;
+  phaseSwayY   += dt * liveParams.swayYFreq;
+  phaseLateral += dt * liveParams.speed;
+
+  // 7. Compensation
+  const viewerK = Math.floor(phaseZ * 2);
+  const dST = liveParams.spiralTwist - prevSpiralTwist;
+  if (dST !== 0) { phaseSpiralComp -= viewerK * dST; prevSpiralTwist = liveParams.spiralTwist; }
+  const dCR = liveParams.colorCycleRate - prevColorCycleRate;
+  if (dCR !== 0) { phaseColorComp -= (phaseZ * 2) * dCR; prevColorCycleRate = liveParams.colorCycleRate; }
+  const dLF = liveParams.lateralFreq - prevLateralFreq;
+  if (dLF !== 0) { phaseLateralComp -= (viewerK - phaseLateral) * dLF; prevLateralFreq = liveParams.lateralFreq; }
+
+  // 8. Uniforms
+  gl.uniform2f(resLoc, canvas.width, canvas.height);
+  gl.uniform1f(phaseLocs.Z, phaseZ);
+  gl.uniform1f(phaseLocs.SwayX, phaseSwayX);
+  gl.uniform1f(phaseLocs.SwayY, phaseSwayY);
+  gl.uniform1f(phaseLocs.Lateral, phaseLateral);
+  gl.uniform1f(phaseLocs.SpiralComp, phaseSpiralComp);
+  gl.uniform1f(phaseLocs.ColorComp, phaseColorComp);
+  gl.uniform1f(phaseLocs.LateralComp, phaseLateralComp);
+  for (const k of PARAM_KEYS) {
+    if (['speed','swayXFreq','swayYFreq'].includes(k)) continue;
+    gl.uniform1f(paramLocs[k], liveParams[k]);
+  }
+
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+  requestAnimationFrame(render);
+}
+
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
