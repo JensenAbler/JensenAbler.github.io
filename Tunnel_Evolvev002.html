@@ -34,14 +34,13 @@
   }
   #preset-strip {
     position: fixed;
-    top: 17px;
-    left: 50%;
-    transform: translateX(-50%);
+    top: 18px;
+    right: 18px;
     z-index: 1001;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 14px;
+    gap: clamp(8px, 2vw, 14px);
     font-family: Futura, 'Futura PT', 'Century Gothic', sans-serif;
     pointer-events: auto;
     user-select: none;
@@ -74,12 +73,21 @@
   }
   @media (max-width: 560px) {
     #preset-strip {
-      top: 14px;
-      gap: 10px;
+      top: 15px;
+      right: 12px;
+      gap: 7px;
     }
     .preset-digit {
       font-size: 16px;
       padding: 4px 1px;
+    }
+  }
+  @media (max-width: 380px) {
+    #preset-strip {
+      top: 56px;
+      right: auto;
+      left: 50%;
+      transform: translateX(-50%);
     }
   }
   #panel-toggle {
