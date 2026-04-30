@@ -19,6 +19,7 @@
     --anthropic-green: #788c5d;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     font-family: 'Poppins', sans-serif;
     background: #000;
@@ -30,6 +31,56 @@
   canvas#gl {
     display: block; width: 100vw; height: 100vh;
     position: fixed; top: 0; left: 0; z-index: 0;
+  }
+  #preset-strip {
+    position: fixed;
+    top: 17px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    font-family: Futura, 'Futura PT', 'Century Gothic', sans-serif;
+    pointer-events: auto;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .preset-digit {
+    appearance: none;
+    -webkit-appearance: none;
+    border: 0;
+    background: transparent;
+    color: #fff;
+    cursor: pointer;
+    font-family: Futura, 'Futura PT', 'Century Gothic', sans-serif;
+    font-size: 18px;
+    font-weight: 400;
+    line-height: 1;
+    letter-spacing: 0;
+    opacity: 0.5;
+    padding: 4px 2px;
+    transition: opacity 0.16s ease, transform 0.16s ease;
+  }
+  .preset-digit:hover,
+  .preset-digit:focus-visible,
+  .preset-digit.active {
+    opacity: 1;
+    outline: none;
+  }
+  .preset-digit:active {
+    transform: translateY(1px);
+  }
+  @media (max-width: 560px) {
+    #preset-strip {
+      top: 14px;
+      gap: 10px;
+    }
+    .preset-digit {
+      font-size: 16px;
+      padding: 4px 1px;
+    }
   }
   #panel-toggle {
     position: fixed; top: 12px; right: 12px; z-index: 1000;
@@ -189,9 +240,10 @@
 </head>
 <body>
 <canvas id="gl"></canvas>
-<button id="panel-toggle">+</button>
+<div id="preset-strip" aria-label="Tunnel presets"></div>
+<button id="panel-toggle" hidden>+</button>
 <button id="fs-toggle" style="position:fixed;top:15px;left:15px;z-index:9999;background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:4px;padding:8px 12px;cursor:pointer;font-size:14px;opacity:0.6;transition:opacity 0.2s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6" onclick="if(!document.fullscreenElement){document.documentElement.requestFullscreen()}else{document.exitFullscreen()}">⛶</button>
-<div id="panel">
+<div id="panel" hidden>
   <div class="panel-header">
     <h1>Tunnel Aesthetic Grammar</h1>
     <div class="subtitle">v7 — S+QWERTY to save · hold QWERTY to recall</div>
@@ -679,23 +731,36 @@ for (const k of PARAM_KEYS) {
 // ═══════════════════════════════════════════════════════════════
 const toggle = document.getElementById('panel-toggle');
 const panel = document.getElementById('panel');
-toggle.addEventListener('click', () => { panel.classList.toggle('open'); toggle.classList.toggle('open'); });
+if (toggle && panel) {
+  toggle.addEventListener('click', () => { panel.classList.toggle('open'); toggle.classList.toggle('open'); });
+}
 
-// Preset chips
+// Always-visible preset digits
+const presetStrip = document.getElementById('preset-strip');
 const presetGrid = document.getElementById('preset-grid');
 let presetChips = [];
 
 function rebuildPresetChips() {
-  presetGrid.innerHTML = '';
   presetChips = [];
-  PRESETS.forEach((preset, i) => {
-    const chip = document.createElement('button');
-    chip.className = 'preset-chip' + (preset.user ? ' user-preset' : '') + (i === currentPresetIndex ? ' active' : '');
-    chip.textContent = preset.name;
-    chip.addEventListener('click', () => loadPreset(i));
-    presetGrid.appendChild(chip);
-    presetChips.push(chip);
-  });
+
+  if (presetStrip) {
+    presetStrip.innerHTML = '';
+    for (let i = 0; i < Math.min(10, PRESETS.length); i++) {
+      const digit = document.createElement('button');
+      digit.type = 'button';
+      digit.className = 'preset-digit' + (i === currentPresetIndex ? ' active' : '');
+      digit.textContent = String(i);
+      digit.title = PRESETS[i].name;
+      digit.setAttribute('aria-label', 'Load ' + PRESETS[i].name);
+      digit.addEventListener('click', () => loadPreset(i));
+      presetStrip.appendChild(digit);
+      presetChips.push(digit);
+    }
+  }
+
+  if (presetGrid) {
+    presetGrid.innerHTML = '';
+  }
 }
 rebuildPresetChips();
 
