@@ -757,9 +757,10 @@ function rebuildPresetChips() {
       const digit = document.createElement('button');
       digit.type = 'button';
       digit.className = 'preset-digit' + (i === currentPresetIndex ? ' active' : '');
-      digit.textContent = String(i);
-      digit.title = PRESETS[i].name;
-      digit.setAttribute('aria-label', 'Load ' + PRESETS[i].name);
+      const hotkeyLabel = i === 9 ? '0' : String(i + 1);
+      digit.textContent = hotkeyLabel;
+      digit.title = PRESETS[i].name + ' (key ' + hotkeyLabel + ')';
+      digit.setAttribute('aria-label', 'Load ' + PRESETS[i].name + ', hotkey ' + hotkeyLabel);
       digit.addEventListener('click', () => loadPreset(i));
       presetStrip.appendChild(digit);
       presetChips.push(digit);
